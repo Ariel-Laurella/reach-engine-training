@@ -1,0 +1,87 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="
+    http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-2.3.xsd
+    http://levelsbeyond.com/schema/workflow/nimbus http://www.levelsbeyond.com/schema/production/nimbus-common-workflow-1.5.xsd
+    "
+          id="regenImageProxyWorkflow"
+          name="Regenerate Image Proxy"
+          executionLabelExpression="Regenerate Proxy for ${subject.name}"
+          description=""
+
+          deadlineExpression=""
+          subjectDOClassName="ImageAssetMaster"
+          showInUserInterface="true"
+          subjectQualifierExpression=""
+
+        >
+
+    <initialStepName>create_proxy</initialStepName>
+
+<!--    <noopStep name="check_for_archived_content" pctComplete="5">
+        <transition condition="${contentArchived}">
+            <targetStepName>restore content</targetStepName>
+        </transition>
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </noopStep>
+
+    <executeSubflowStep
+            name="restore content"
+            subjectChangePath="${subject}"
+            targetWorkflowId="restoreAsset"
+            pctComplete="50"
+            >
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </executeSubflowStep>-->
+
+    <convertImageStep name="create_proxy"
+        displayName="create proxy"
+        sourceFileExpression="${subject.file}" resultDataDef="proxyFile"
+        targetExtensionExpression="jpg" imageMagickParamsExpression="${ imageProxyArguments }"
+        continueOnException="true">
+        <transition condition="${ proxyFile == null }">
+            <targetStepName>end</targetStepName>
+        </transition>
+        <transition condition="=true">
+            <targetStepName>save_proxy</targetStepName>
+        </transition>
+    </convertImageStep>
+    
+    <saveAssetStep name="save_proxy"
+        displayName="save proxy"
+        contentExpression="${ proxyFile }"
+        assetExpression="${assetVersion}" contentUseExpression="Proxy" pctComplete="95"
+        contentTemplateExpression="${ #imageProxyTemplate().name }"
+        continueOnException="true" versionAssetExpression="=false">
+        <transition condition="${ proxyFile == null }">
+            <targetStepName>end</targetStepName>
+        </transition>
+        <transition condition="=true">
+            <targetStepName>delete_proxy_temp_file</targetStepName>
+        </transition>
+    </saveAssetStep>
+    
+    <deleteFileStep name="delete_proxy_temp_file"
+        displayName="delete temporary proxy file"
+        sourceFilesExpression="${ proxyFile }" continueOnException="true">
+        <transition condition="=true">
+            <targetStepName>end</targetStepName>
+        </transition>
+    </deleteFileStep>
+
+    <testStep name="end" outputExpression="Finished Recreate Proxy"/>
+
+
+    <contextDataDef name="imageProxyPropertyName" dataType="String" defaultDataExpression="imageAsset.proxyArguments"/>
+    <contextDataDef name="imageProxyArguments" dataType="String" defaultDataExpression="${ #sysconfig( imageProxyPropertyName  ) }"/>
+    <contextDataDef name="proxyFile" dataType="File"/>
+    <contextDataDef name="skipMezzanineFlag" dataType="Boolean" defaultDataExpression="${false}"/>
+    <contextDataDef name="assetVersion" dataType="Data Object"/>
+
+
+</workflow>

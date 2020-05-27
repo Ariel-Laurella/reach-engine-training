@@ -1,0 +1,131 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="
+    http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-2.3.xsd
+    http://levelsbeyond.com/schema/workflow/nimbus http://www.levelsbeyond.com/schema/production/nimbus-common-workflow-1.5.xsd
+    "
+          id="_regenProxyWorkflow"
+          name="Regenerate Proxy"
+          executionLabelExpression="Regenerate Proxy for ${subject.name}"
+          description=""
+
+          deadlineExpression=""
+          subjectDOClassName="Timeline"
+          showInUserInterface="true"
+          subjectQualifierExpression=""
+
+        >
+
+    <initialStepName>regenerateProxy</initialStepName>
+
+<!--    <noopStep name="check_for_archived_content" pctComplete="5">
+        <transition condition="${contentArchived}">
+            <targetStepName>restore content</targetStepName>
+        </transition>
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </noopStep>
+
+    <executeSubflowStep
+            name="restore content"
+            subjectChangePath="${subject}"
+            targetWorkflowId="restoreTimeline"
+            pctComplete="50"
+            >
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </executeSubflowStep>-->
+
+    <executeSubflowStep name="regenerateProxy"
+                        targetWorkflowId="${#sysconfig('workflows.createProxyWorkflow')}"
+                        subjectChangePath="=subject.mainVideoAsset"
+                        pctComplete="95"
+            >
+        <transition condition="${true}">
+            <targetStepName>create thumbnail video</targetStepName>
+        </transition>
+        <subflowContextDataMapping subflowDataDef="proxyTemplate" parentDataDef="proxyTemplate"/>
+        <subflowContextDataMapping subflowDataDef="sourceCopyPath" parentDataDef="sourceCopyPath"/>
+    </executeSubflowStep>
+    
+    <executeSubflowStep name="create thumbnail video"
+        targetWorkflowId="_createThumbnailVideo"
+        pctComplete="85"
+        subjectChangePath="=subject.mainVideoAsset">
+        <transition condition="=true">
+            <targetStepName>create thumbnail from video</targetStepName>
+        </transition>
+        <subflowContextDataMapping subflowDataDef="thumbnailTemplate"
+            parentDataDef="thumbnailVideoTemplate" />
+        <subflowContextDataMapping subflowDataDef="sourceCopyPath"
+            parentDataDef="sourceCopyPath" />
+    </executeSubflowStep>
+    
+    <convertImageStep name="create thumbnail from video"
+        sourceFileExpression="${#thumbnailMovFile(asset)}"
+        resultDataDef="thumbnailFile">
+        <transition condition="=true">
+            <targetStepName>save thumbnail</targetStepName>
+        </transition>
+    </convertImageStep>
+    
+    <saveAssetStep name="save thumbnail"
+        contentExpression="${thumbnailFile}"
+        assetExpression="${asset}"
+        contentUseExpression="Thumbnail"
+        pctComplete="95"
+        contentTemplateExpression="Thumbnail Template">
+        <transition condition="=true">
+            <targetStepName>delete thumbnail artifact</targetStepName>
+        </transition>
+    </saveAssetStep>
+    
+    <deleteFileStep name="delete thumbnail artifact"
+        sourceFilesExpression="${thumbnailFile}"
+        continueOnException="true">
+        <transition condition="=true">
+            <targetStepName>save layout info</targetStepName>
+        </transition>
+    </deleteFileStep>
+
+    <groovyStep 
+        name="save layout info"
+        resultDataDef="groovyReturn">
+        <transition condition="=true">
+            <targetStepName>end</targetStepName>
+        </transition>
+        <script>
+            <![CDATA[
+            //language=Groovy
+            import com.levelsbeyond.nimbus.common.data.LayoutInfo;
+            
+            LayoutInfo.syncLayoutItemsToAssets(timeline);
+        ]]>
+        </script>
+    </groovyStep>
+
+    <testStep name="end" outputExpression="Finished Recreate Proxy"/>
+
+    <contextDataDef name="asset"            dataType="Data Object"          defaultDataExpression="${subject.mainVideoAsset}"/>
+    <contextDataDef name="timeline"         dataType="Data Object"          defaultDataExpression="${subject}"/>
+    <contextDataDef name="proxyTemplate"    dataType="String"               defaultDataExpression="${#sysconfig('import.proxySettingName')}" />
+    <contextDataDef name="thumbnailVideoTemplate"   dataType="String"       defaultDataExpression="${#sysconfig('import.thumbnailMovSettingName')}" />    
+    <contextDataDef name="trackName"        dataType="String" />
+    <contextDataDef name="timelineVideo"    dataType="Data Object" />
+    <contextDataDef name="layoutInfoData"   dataType="JSON"/>
+    <contextDataDef name="assetVersion"     dataType="Data Object"/>
+    <contextDataDef name="contentArchived"  dataType="Boolean"              defaultDataExpression="${subject.mainMezzanineContent.truncatedFlag}"/>
+    <contextDataDef name="proxyTemplate"    dataType="String"               defaultDataExpression="=#proxyTemplate(assetVersion)?.name"/>
+    <contextDataDef name="groovyReturn"     dataType="Data Object"/>
+    <contextDataDef name="thumbnailFile"    dataType="File"/>
+    <contextDataDef name="sourceCopyPath"   dataType="Directory" >
+        <description>
+            Optional intermediary directory before transcode. Use this path if the transcoder does not have direct
+            access to the repository
+        </description>
+    </contextDataDef>
+
+</workflow>

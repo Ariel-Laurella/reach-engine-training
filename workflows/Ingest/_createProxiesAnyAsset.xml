@@ -1,0 +1,183 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2018 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+    id="_createProxiesAnyAsset"
+    name="Create Proxies Any Asset"
+    executionLabelExpression="Create Proxies Any Asset | Asset Type: ${subject.assetType} | Asset Name: ${subject.name}"
+    description=""
+    subjectDOClassName="AssetMaster"
+    showInUserInterface="true"
+    resultDataDef=""
+    deadlineExpression=""
+    sdkVersion="5.21"
+    >
+    
+	<initialStepName>determine asset type</initialStepName>
+	
+	
+	<!-- ................................................... Initial Checks .................................................... -->
+	<noopStep name="determine asset type"
+		executionLabelExpression="Asset Type = ${subject.assetType}"
+		pctComplete="2"
+		>
+		<transition condition="${subject.assetType.equals('Video')}">
+			<targetStepName>create video proxies</targetStepName>
+		</transition>
+		<transition condition="${subject.assetType.equals('Audio')}">
+			<targetStepName>create audio proxy</targetStepName>
+		</transition>
+		<transition condition="${subject.assetType.equals('Image')}">
+			<targetStepName>create image proxies</targetStepName>
+		</transition>
+		<transition condition="${subject.assetType.equals('Document')}">
+			<targetStepName>create document proxies</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>unsupported asset type</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<!-- ................................................... Create Proxies .................................................... -->
+    <executeSubflowStep name="create video proxies"
+        targetWorkflowId="${videoProxySubflow}"
+        subjectChangePath="${subject}"
+        pctComplete="95"
+        nextStep="end"
+        >
+	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
+	    <subflowContextDataMapping parentDataDef="mezzFile"                 subflowDataDef="mezzFile"/>
+	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
+	    <subflowContextDataMapping parentDataDef="thumbFile"                subflowDataDef="thumbFile"/>
+	    <subflowContextDataMapping parentDataDef="thumbVideoFile"           subflowDataDef="thumbVideoFile"/>
+	    <subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
+	    <subflowContextDataMapping parentDataDef="createMezz"               subflowDataDef="createMezz"/>
+    	<subflowContextDataMapping parentDataDef="createProxy"              subflowDataDef="createProxy"/>
+	    <subflowContextDataMapping parentDataDef="createThumbVideo"         subflowDataDef="createThumbVideo"/>
+    	<subflowContextDataMapping parentDataDef="createThumb"              subflowDataDef="createThumb"/>
+	    <subflowContextDataMapping parentDataDef="videoMezzTemplate"        subflowDataDef="mezzTemplate"/>
+	    <subflowContextDataMapping parentDataDef="videoProxyTemplate"       subflowDataDef="proxyTemplate"/>
+	    <subflowContextDataMapping parentDataDef="videoThumbVideoTemplate"  subflowDataDef="thumbVideoTemplate"/>
+	    <subflowContextDataMapping parentDataDef="videoThumbnailPercentage" subflowDataDef="thumbnailPercentage"/>
+    </executeSubflowStep>
+    
+	
+    <executeSubflowStep name="create audio proxy"
+        targetWorkflowId="${audioProxySubflow}"
+        subjectChangePath="${subject}"
+        pctComplete="99"
+        nextStep="end"    
+        >
+	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
+	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
+	    <subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
+	    <subflowContextDataMapping parentDataDef="createProxy"              subflowDataDef="createProxy"/>
+	    <subflowContextDataMapping parentDataDef="audioProxyTemplate"       subflowDataDef="proxyTemplate"/>
+    </executeSubflowStep>
+
+	
+    <executeSubflowStep name="create image proxies"
+        targetWorkflowId="${imageProxySubflow}"
+        subjectChangePath="${subject}"
+        pctComplete="99"
+        nextStep="end"    
+        >
+	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
+	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
+	    <subflowContextDataMapping parentDataDef="thumbFile"                subflowDataDef="thumbFile"/>
+	    <subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
+	    <subflowContextDataMapping parentDataDef="createProxy"              subflowDataDef="createProxy"/>
+	    <subflowContextDataMapping parentDataDef="createThumb"              subflowDataDef="createThumb"/>
+	    <subflowContextDataMapping parentDataDef="imageProxyArguments"      subflowDataDef="proxyArguments"/>
+	    <subflowContextDataMapping parentDataDef="imageThumbArguments"      subflowDataDef="thumbArguments"/>
+    </executeSubflowStep>
+    
+
+    <executeSubflowStep name="create document proxies"
+        targetWorkflowId="${documentProxySubflow}"
+        subjectChangePath="${subject}"
+        pctComplete="99"
+        nextStep="end"    
+        >
+	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
+	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
+	    <subflowContextDataMapping parentDataDef="thumbFile"                subflowDataDef="thumbFile"/>
+	    <subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
+	    <subflowContextDataMapping parentDataDef="createProxy"              subflowDataDef="createProxy"/>
+	    <subflowContextDataMapping parentDataDef="createThumb"              subflowDataDef="createThumb"/>
+	    <subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="proxyArguments"/>
+	    <subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="thumbArguments"/>
+    </executeSubflowStep>
+	
+	
+	<noopStep name="unsupported asset type"
+		executionLabelExpression="Cannot determine how to create proxies for type ${subject.assetType}."
+		pctComplete="99"
+		nextStep="end"
+		/>
+	
+	
+    <!-- ...................................................... End Steps ...................................................... -->
+    <!-- success -->
+    <noopStep name="end"    pctComplete="100"/>
+	
+    
+    <!-- .................................................. Context Data Defs .................................................. -->
+	<!-- ............ Input Variables ............. -->
+	<!-- fail or keep going when an error occurs (default is in subflows) -->
+	<contextDataDef name="failOnError"              dataType="Boolean"/>
+	<!-- supply a file to save -->
+	<contextDataDef name="mezzFile"                 dataType="File"/>
+	<contextDataDef name="proxyFile"                dataType="File"/>
+	<contextDataDef name="thumbFile"                dataType="File"/>
+	<contextDataDef name="thumbVideoFile"           dataType="File"/>
+	<!-- create if no file supplied? (defaults are in subflows) -->
+	<contextDataDef name="createMezz"               dataType="Boolean"/>
+	<contextDataDef name="createProxy" 		        dataType="Boolean"/>
+	<contextDataDef name="createThumb" 		        dataType="Boolean"/>
+	<contextDataDef name="createThumbVideo"         dataType="Boolean"/>
+	<!-- creation settings (defaults are in subflows) -->
+	<contextDataDef name="prioritiesJson"           dataType="JSON">
+		<description>
+			A JSON with the structure:
+				{"mezzanine":w, "proxy":x, "thumbnailVideo":y, "thumbnail":z}
+		</description>
+	</contextDataDef>
+	<!-- video -->
+	<contextDataDef name="videoMezzTemplate"    	dataType="String"/>
+	<contextDataDef name="videoProxyTemplate"    	dataType="String"/>
+	<contextDataDef name="videoThumbVideoTemplate"  dataType="String"/>
+	<contextDataDef name="videoThumbnailPercentage" dataType="Integer"/>
+	<!-- audio -->
+	<contextDataDef name="audioProxyTemplate"       dataType="String"/>
+	<!-- image -->
+	<contextDataDef name="imageProxyArguments"      dataType="String"/>
+	<contextDataDef name="imageThumbArguments"      dataType="String"/>
+	<!-- document -->
+	<contextDataDef name="documentProxyArguments"   dataType="String"/>
+	<contextDataDef name="documentThumbArguments"   dataType="String"/>
+	
+	<!-- .......... Processing variables .......... -->
+	<contextDataDef name="videoProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.video.workflow') != null? #sysconfig('workflows.default.proxies.video.workflow') : '_createVideoProxies'}"/>
+	<contextDataDef name="audioProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.audio.workflow') != null? #sysconfig('workflows.default.proxies.audio.workflow') : '_createAudioProxy'}"/>
+	<contextDataDef name="imageProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.image.workflow') != null? #sysconfig('workflows.default.proxies.image.workflow') : '_createImageProxies'}"/>
+	<contextDataDef name="documentProxySubflow"     dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.document.workflow') != null? #sysconfig('workflows.default.proxies.document.workflow') : '_createDocumentProxies'}"/>
+</workflow>

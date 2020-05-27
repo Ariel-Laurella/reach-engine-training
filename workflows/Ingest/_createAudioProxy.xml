@@ -1,0 +1,193 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2018 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+    id="_createAudioProxy"
+    name="Create Audio Proxy"
+    executionLabelExpression="Create Audio Proxy | asset: ${subject.name}"
+    description=""
+    subjectDOClassName="AudioAssetMaster"
+    showInUserInterface="false"
+    deadlineExpression=""
+    sdkVersion="5.21"
+	>
+	
+	<initialStepName>check proxies options</initialStepName>
+	
+	
+	<!-- ................................................... Initial Checks .................................................... -->
+	<noopStep name="check proxies options"
+		executionLabelExpression="Proxy option? ${proxyFile != null AND !proxyFile.absolutePath.equals('')? 'File' : (createProxy? 'Create' : 'None')}"
+		pctComplete="2"
+		>
+		<!-- Proxy -->
+		<transition condition="${proxyFile != null AND !proxyFile.absolutePath.equals('') AND #proxyContent(subject) != null AND #proxyContent(subject).file.exists()}">
+			<targetStepName>delete old proxy</targetStepName>
+		</transition>
+		<transition condition="${proxyFile != null AND !proxyFile.absolutePath.equals('')}">
+			<targetStepName>save proxy</targetStepName>
+		</transition>
+		<transition condition="${createProxy}">
+			<targetStepName>create proxy</targetStepName>
+		</transition>
+		<!-- Nothing to do -->
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<!-- ..................................................... Proxy Steps ..................................................... -->
+	<convertAudioStep name="create proxy"
+		sourceFileExpression="${sourceFile}"
+		mediaConversionTemplateExpression="${proxyTemplate}"
+		resultDataDef="tempProxyFile"
+		priorityExpression="${proxyPriority}"
+		continueOnException="true"
+		executionLabelExpression="Transcode proxy from original file. | Profile: ${proxyTemplate}"
+		pctComplete="75"
+		>
+		<transition condition="${tempProxyFile?.exists()}">
+			<targetStepName>set proxy file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>proxy error</targetStepName>
+		</transition>
+	</convertAudioStep>
+	
+	
+	<setContextData name="set proxy file"
+		targetDataDef="proxyFile"
+		valueExpression="${tempProxyFile}"
+		pctComplete="77"
+		devStep="true"
+		>
+		<transition condition="${#proxyContent(subject) != null AND #proxyContent(subject).file.exists()}">
+			<targetStepName>delete old proxy</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>save proxy</targetStepName>
+		</transition>
+	</setContextData>
+	
+	
+	<deleteFileStep name="delete old proxy"
+		sourceFilesExpression="${ #proxyContent(subject)?.file }"
+		executionLabelExpression="deleting old proxy: ${#proxyContent(subject)?.file?.absolutePath}"
+		continueOnException="true"
+		pctComplete="80"
+		nextStep="save proxy"
+		/>
+	
+	
+	<saveAssetStep name="save proxy"
+		contentExpression="${proxyFile}"
+		contentUseExpression="Proxy"
+		versionAssetExpression="false"
+		assetExpression="${subject.currentVersion}"
+		executionLabelExpression="Save new proxy to asset | file: ${proxyFile?.absolutePath}"
+		pctComplete="95"
+		>
+		<!-- Errors -->
+		<exception-transition type="WorkflowException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<exception-transition type="AssetException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<exception-transition type="NullPointerException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</saveAssetStep>
+	
+	
+	<noopStep name="proxy error"
+		executionLabelExpression="there was an error creating/saving proxy. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>proxy failed</targetStepName>
+		</transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<!-- ................................................... Clean Up Steps .................................................... -->
+	<noopStep name="cleanup"
+		executionLabelExpression="temp files?... proxy? ${tempProxyFile != null AND tempProxyFile.exists()}"
+		pctComplete="97"
+		>
+		<transition condition="${tempProxyFile != null AND tempProxyFile.exists()}">
+			<targetStepName>delete temp proxy file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<deleteFileStep name="delete temp proxy file"
+		sourceFilesExpression="${tempProxyFile}"
+		continueOnException="true"
+		executionLabelExpression="deleting ${tempProxyFile.absolutePath}"
+		pctComplete="99"
+		nextStep="end"
+		/>
+	
+	
+	<!-- ...................................................... End Steps ...................................................... -->
+	<!-- success -->
+	<noopStep name="end"	pctComplete="100"/>
+	
+	
+	<!-- fail -->
+	<failWorkflowStep name="proxy failed"
+		reasonExpression="Proxy failed. Check workflow steps for errors."
+		executionLabelExpression="Proxy failed. Check workflow steps for errors."
+		/>
+	
+	
+	<!-- .................................................. Context Data Defs .................................................. -->
+	<!-- ............ Input Variables ............. -->
+	<contextDataDef name="failOnError"          dataType="Boolean"      defaultDataExpression="${#sysconfig('workflows.default.proxies.failOnError') ?: true}"/>
+	<!-- Proxy -->
+	<contextDataDef name="proxyFile"            dataType="File"/>
+	<contextDataDef name="createProxy" 			dataType="Boolean"		defaultDataExpression="${#sysconfig('workflows.default.proxies.audio.createProxy') ?: true}"/>
+	<!-- templates -->
+	<contextDataDef name="proxyTemplate"    	dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.audio.proxyTemplate') ?: (#sysconfig('import.audioProxySettingName') ?: 'mp3')}" />
+	<contextDataDef name="prioritiesJson"       dataType="JSON">
+		<description>
+			A JSON with the structure:
+				{"proxy":x}
+		</description>
+	</contextDataDef>
+	
+	<!-- .......... Processing variables .......... -->
+	<contextDataDef name="sourceFile" 		    dataType="File"         defaultDataExpression="${#sourceContent(subject)?.file}"/>
+	<contextDataDef name="proxyPriority"        dataType="Integer"      defaultDataExpression="${prioritiesJson?.get('proxy') != null? prioritiesJson.get('proxy').asText() : 0}"/>
+	<contextDataDef name="tempProxyFile"        dataType="File"/>
+	
+</workflow>

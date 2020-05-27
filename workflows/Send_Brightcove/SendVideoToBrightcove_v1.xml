@@ -1,0 +1,311 @@
+
+<!-- This workflow is intended to send a video asset to Brightcove. -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+          id="SendVideoToBrightcove"
+          name="Send Video to Brightcove"
+          executionLabelExpression="Send Asset to Brightcove"
+          subjectDOClassName="VideoAssetMaster"
+          showInUserInterface="true"
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion="5.21"
+>
+
+    <initialStepName>get authentication token</initialStepName>
+
+
+<!-- Get Authorization Token from Brightcove .......................................................................-->
+
+    <submitHttpStep name="get authentication token"
+                    urlExpression="https://oauth.brightcove.com/v4/access_token"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="authResponsePayload"
+                    executionLabelExpression="Returning token from Brightcove"
+                    nextStep="create video">
+        <requestPayloadItem name="body">${authPayload}</requestPayloadItem>
+        <requestHeader name="Content-Type">application/x-www-form-urlencoded</requestHeader>
+        <requestHeader name="Authorization">${brightcoveEncodedAuth}</requestHeader>
+    </submitHttpStep>
+
+
+<!-- Create video on Brightcove ....................................................................................-->
+
+    <submitHttpStep name="create video"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Creating video on Brightcove"
+                    nextStep="set video id">
+        <requestPayloadItem name="body">
+            <![CDATA[
+{
+  "name": "test by Ariel - ${dateTimeNow.toString()}"
+}
+            ]]>
+        </requestPayloadItem>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+
+<!-- Get Upload URL for Amazon S3 ...................................................................................-->
+
+    <setContextData name="set video id"
+                    targetDataDef="brightcoveVideoId"
+                    valueExpression="${responsePayload.get('id').asText()}"
+                    devStep="true"
+                    nextStep="get upload url"
+    />
+
+    <submitHttpStep name="get upload url"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos/${brightcoveVideoId}/upload-urls/${subject.name}"
+                    requestMethodExpression="GET"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Getting upload url for Amazon S3"
+                    nextStep="set bucket">
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+    <setContextData name="set bucket"
+                    targetDataDef="amazonBucketName"
+                    valueExpression="${responsePayload.get('bucket').asText()}"
+                    devStep="true"
+                    nextStep="set key name"
+    />
+    <setContextData name="set key name"
+                    targetDataDef="amazonKeyName"
+                    valueExpression="${responsePayload.get('object_key').asText()}"
+                    devStep="true"
+                    nextStep="set access key"
+    />
+    <setContextData name="set access key"
+                    targetDataDef="amazonAccessKey"
+                    valueExpression="${responsePayload.get('access_key_id').asText()}"
+                    devStep="true"
+                    nextStep="set secret key"
+    />
+    <setContextData name="set secret key"
+                    targetDataDef="amazonSecretKey"
+                    valueExpression="${responsePayload.get('secret_access_key').asText()}"
+                    devStep="true"
+                    nextStep="set session token"
+    />
+    <setContextData name="set session token"
+                    targetDataDef="amazonSessionToken"
+                    valueExpression="${responsePayload.get('session_token').asText()}"
+                    devStep="true"
+                    nextStep="set request url"
+    />
+
+    <setContextData name="set request url"
+                    targetDataDef="amazonRequestUrl"
+                    valueExpression="${responsePayload.get('api_request_url').asText()}"
+                    devStep="true"
+                    nextStep="upload video"
+    />
+
+
+
+
+
+<!-- Upload video to Amazon S3 ......................................................................................-->
+
+    <groovyStep name="upload video" resultDataDef="amazonUploadResult" nextStep="ingest video" >
+        <script>
+        <![CDATA[
+/*
+* This code uses Aws SDK 1.11. It Uploads a file to S3 Storage in multiple parts using bandwidth control
+* with Google guava throttle library.  Each chunk uploaded is controlled by guava
+* throttle in order to maintain the desired bandwidth set up by txRate variable.
+ */
+
+
+import com.amazonaws.SdkClientException
+import com.amazonaws.auth.AWSCredentials
+import com.amazonaws.auth.BasicSessionCredentials
+import com.amazonaws.regions.Regions
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.*
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.google.common.util.concurrent.RateLimiter
+import org.apache.http.protocol.HttpRequestExecutor
+
+
+
+/*
+* Uploading a file to S3 in parts
+*/
+
+int txRate = amazonTxRateKBps * 1024                              //Maximum desired upload bandwidth in bytes per second
+def uploadResultProcess = 'ERROR'
+
+
+File sourceFile = new File(localFilePath)
+RateLimiter limiter = RateLimiter.create(txRate)
+long maxChunkLength = 5 * 1024 * 1024                       // Set chunkLength to 5 MB maximum.
+long chunkLength = 0
+Date startTime = (new Date())
+long filePosition = 0
+int chunkNumber = 1
+
+// Create a list of ETag objects. You retrieve ETags for each object part uploaded,
+// then, after each individual part has been uploaded, pass the list of ETags to
+// the request to complete the upload.
+List<PartETag> partETags = new  ArrayList<PartETag>()
+
+try {
+
+    AWSCredentials credentials = new BasicSessionCredentials(amazonAccessKey,amazonSecretKey,amazonSessionToken)
+
+    AmazonS3 s3Client = AmazonS3ClientBuilder
+            .standard()
+            .withCredentials(new AWSStaticCredentialsProvider(credentials))
+            .withRegion(Regions.US_EAST_1)
+            .build()
+
+
+// First create a multipart upload and get upload id
+
+    InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(amazonBucketName, amazonKeyName)
+    InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest)
+
+
+// Upload all the different parts of the file in chunks
+
+    println("File Path................: " + localFilePath)
+    println("Start Time...............: " + startTime.toString())
+
+
+    while ((filePosition < sourceFile.length())) {
+
+        //Adjust the chunkLength to upload as needed. The last part could be less than 5 MB.
+        chunkLength = (sourceFile.length() - filePosition > maxChunkLength) ? maxChunkLength : sourceFile.length() - filePosition
+
+        // Create the request to upload a part
+        UploadPartRequest uploadPartRequest = new UploadPartRequest()
+                .withBucketName(amazonBucketName)
+                .withKey(amazonKeyName)
+                .withUploadId(initResponse.getUploadId())
+                .withPartNumber(chunkNumber)
+                .withFileOffset(filePosition)
+                .withFile(sourceFile)
+                .withPartSize(chunkLength)
+
+        // Upload the part
+        UploadPartResult uploadResult = s3Client.uploadPart(uploadPartRequest)
+
+        // Create a list of ETag objects to merge at the end.
+        partETags.add(uploadResult.getPartETag())
+
+        //move file position to the next step
+        filePosition += chunkLength
+        chunkNumber += 1
+
+        //Bandwidth control
+        limiter.acquire((int) chunkLength)
+    }
+
+
+// Finally call completeMultipartUpload operation to tell S3 to merge all uploaded
+// parts and finish the multipart operation. Pass the list of ETags.
+    CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest(amazonBucketName, amazonKeyName, initResponse.getUploadId(), partETags)
+
+    s3Client.completeMultipartUpload(compRequest)
+    uploadResultProcess = "SUCCESS"
+
+//Print results
+
+    Date stopTime = new Date()
+    long fileLengthKB = sourceFile.length() / 1024
+    long uploadDuration = (stopTime.getTime() - startTime.getTime()) / 1000
+    long averageBandwidth = fileLengthKB / uploadDuration
+    println("Stop Time................: " + stopTime.toString())
+    println("file lenght [KB].........: " + fileLengthKB.toString())
+    println("Upload duration [s]......: " + uploadDuration.toString())
+    println("Desired Bandwidth [KB/s].: " + (txRate / 1024).toString())
+    println("Average Bandwidth [KB/s].: " + averageBandwidth.toString())
+}
+catch (Exception e) {
+    println("Upload failed with error: " + e.getMessage())
+
+}
+finally {
+    return uploadResultProcess
+}
+        ]]>
+        </script>
+    </groovyStep>
+
+
+<!-- Ingest video on Brightcove ....................................................................................-->
+
+    <submitHttpStep name="ingest video"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos/${brightcoveVideoId}/ingest-requests"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Ingesting video on Brightcove"
+                    nextStep="end">
+        <requestPayloadItem name="body">
+            <![CDATA[
+{
+  "master": {
+    "url": "${amazonRequestUrl}"
+  },
+  "poster": {
+    "url": "https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg",
+    "width": 1920,
+    "height": 1080
+  },
+  "capture-images": false
+}
+            ]]>
+        </requestPayloadItem>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+
+
+<!--  End and fail steps ...........................................................................................-->
+
+    <noopStep name="end"
+              executionLabelExpression="end" />
+
+
+<!--  Context Data Definitions .....................................................................................-->
+
+    <contextDataDef name="localFilePath"            dataType="String"  defaultDataExpression="${subject.mezzanine.file.absolutePath}" />
+    <contextDataDef name="dateTimeNow"              dataType="Date/Time"  defaultDataExpression="${#newDate()}" />
+    <contextDataDef name="authPayload"              dataType="String" hidden="true" defaultDataExpression="grant_type=client_credentials&amp;client_id=${brightcoveClientId}&amp;client_secret=${brightcoveClientSecret}" />
+    <contextDataDef name="authResponsePayload"      dataType="JSON" />
+    <contextDataDef name="responsePayload"          dataType="JSON" />
+    <contextDataDef name="responseCode"             dataType="Integer" />
+    <contextDataDef name="amazonBucketName"         dataType="String" />
+    <contextDataDef name="amazonKeyName"            dataType="String" />
+    <contextDataDef name="amazonAccessKey"          dataType="String" />
+    <contextDataDef name="amazonSecretKey"          dataType="String" />
+    <contextDataDef name="amazonSessionToken"       dataType="String" />
+    <contextDataDef name="amazonRequestUrl"         dataType="String" />
+    <contextDataDef name="amazonUploadResult"       dataType="String" />
+    <contextDataDef name="amazonTxRateKBps"         dataType="Integer" defaultDataExpression="300" />
+    <contextDataDef name="brightcoveClientId"       dataType="String" hidden="true" defaultDataExpression="0ed173bb-9a77-45ec-8346-293474420f29" />
+    <contextDataDef name="brightcoveClientSecret"   dataType="String" hidden="true" defaultDataExpression="-K6ATWzUfNIwFRL1V09j9qTMq7vRT1nlaDCOdrh6QuEVD-Ji6vlhNZplbJRibIXEcUWDJ_dq7XCqlhjCQyWOFg" />
+    <contextDataDef name="brightcoveEncodedAuth"    dataType="String" hidden="true" defaultDataExpression="Bearer MGVkMTczYmItOWE3Ny00NWVjLTgzNDYtMjkzNDc0NDIwZjI5Oi1LNkFUV3pVZk5Jd0ZSTDFWMDlqOXFUTXE3dlJUMW5sYURDT2RyaDZRdUVWRC1KaTZ2bGhOWnBsYkpSaWJJWEVjVVdESl9kcTdYQ3FsaGpDUXlXT0Zn" />
+    <contextDataDef name="brightcoveAccountId"      dataType="String" hidden="true" defaultDataExpression="6058022072001"/>
+    <contextDataDef name="brightcoveVideoId"        dataType="String"   />
+
+
+
+
+</workflow>

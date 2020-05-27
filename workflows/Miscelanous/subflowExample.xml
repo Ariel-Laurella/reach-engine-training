@@ -1,0 +1,276 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+	id="subflowExample"
+	name="Ingest Asset Subflow Example "
+	executionLabelExpression="Ingest Asset | file: ${fileToIngest.absolutePath}"
+	subjectDOClassName=""
+	showInUserInterface="true"
+	resultDataDef="assetVersion"
+	deadlineExpression=""
+	sdkVersion="5.21"
+	>
+
+
+	<initialStepName>ingest file</initialStepName>
+	
+
+	<executeSubflowStep name="ingest file"
+		executionLabelExpression="ingesting file (${fileToIngest.name})"
+		targetWorkflowId="_anyAssetIngest"
+		subjectChangePath="${fileToIngest}"
+		subflowTargetDataDef="fileToIngest"
+		resultDataDef="assetMaster"
+		pctComplete="70"
+		nextStep="notify_if_ingested"
+		>
+		<!-- ingest -->
+		<subflowContextDataMapping parentDataDef="sourceAsMezz"             subflowDataDef="sourceAsMezz"/>
+		<subflowContextDataMapping parentDataDef="checkForDuplicate"        subflowDataDef="checkForDuplicate"/>
+		<subflowContextDataMapping parentDataDef="overwriteExisting"        subflowDataDef="overwriteExisting"/>
+		<subflowContextDataMapping parentDataDef="versionDuplicate"         subflowDataDef="versionDuplicate"/>
+		<subflowContextDataMapping parentDataDef="assetVersion"             subflowDataDef="assetVersion"/>
+		<!-- metadata -->
+		<subflowContextDataMapping parentDataDef="failOnMetadataError"      subflowDataDef="failOnMetadataError"/>
+		<subflowContextDataMapping parentDataDef="collections"              subflowDataDef="collections"/>
+		<subflowContextDataMapping parentDataDef="metadataForm"             subflowDataDef="metadataForm"/>
+		<subflowContextDataMapping parentDataDef="metadataFormType"         subflowDataDef="metadataFormType"/>
+		<subflowContextDataMapping parentDataDef="categories"               subflowDataDef="categories"/>
+		<subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
+		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
+		<!-- proxies -->
+		<subflowContextDataMapping parentDataDef="failOnProxiesError"       subflowDataDef="failOnProxiesError"/>
+		<subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
+		<subflowContextDataMapping parentDataDef="createMezz"               subflowDataDef="createMezz"/>
+		<subflowContextDataMapping parentDataDef="createProxy"              subflowDataDef="createProxy"/>
+		<subflowContextDataMapping parentDataDef="createThumbVideo"         subflowDataDef="createThumbVideo"/>
+		<subflowContextDataMapping parentDataDef="createThumb"              subflowDataDef="createThumb"/>
+		<subflowContextDataMapping parentDataDef="videoMezzTemplate"        subflowDataDef="videoMezzTemplate"/>
+		<subflowContextDataMapping parentDataDef="videoProxyTemplate"       subflowDataDef="videoProxyTemplate"/>
+		<subflowContextDataMapping parentDataDef="videoThumbVideoTemplate"  subflowDataDef="videoThumbVideoTemplate"/>
+		<subflowContextDataMapping parentDataDef="audioProxyTemplate"       subflowDataDef="audioProxyTemplate"/>
+		<subflowContextDataMapping parentDataDef="imageProxyArguments"      subflowDataDef="imageProxyArguments"/>
+		<subflowContextDataMapping parentDataDef="imageThumbArguments"      subflowDataDef="imageThumbArguments"/>
+		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
+		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
+	</executeSubflowStep>
+	
+	
+	<!-- 
+		<transition condition="${assetMaster.assetType.toUpperCase() == 'VIDEO'}">
+			<targetStepName>Get Tech Details</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>get asset version</targetStepName>
+		</transition>
+	-->
+
+	<noopStep name="notify_if_ingested"
+			  executionLabelExpression="Evaluating ingest process"
+	>
+			<transition condition="${#fileExists(assetMaster.mezzanine.file)}">
+				<targetStepName>send_email</targetStepName>
+			</transition>
+			<transition condition="${true}">
+				<targetStepName>message_Ingest_Fail</targetStepName>
+			</transition>
+	</noopStep>
+
+	<emailStep name="send_email"
+			   emailAddressesExpression="${userEmailAddress}"
+			   subjectExpression="[REACH] Ingest Process was successful: file ${assetMaster.mezzanine.file.absolutePath}"
+			   nextStep="end"
+			   pctComplete="90"
+	>
+
+
+		<body>
+			<![CDATA[
+Hello user. The ingest process was successful for file ${assetMaster.mezzanine.file.absolutePath}.
+
+                    ]]>
+		</body>
+	</emailStep>
+
+	<createFailureNotificationStep name="message_Ingest_Fail"
+								   nextStep="fail file not ingested"
+								   notificationTypeExpression="FAILURE"
+								   notificationBodyExpression="Ingest process has failed" />
+
+
+
+	<!--
+	<noopStep name="check for video"
+		executionLabelExpression="Checking for video | ${assetMaster.assetType.toUpperCase() == 'VIDEO'}"
+		>
+		<transition condition="${assetMaster.assetType.toUpperCase() == 'VIDEO'}">
+			<targetStepName>Get Tech Details</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>get asset version</targetStepName>
+		</transition>
+	</noopStep>
+
+-->
+	<!--
+		Gather and apply Technical Metadata from Vantage (only works if the asset is a video)
+		- Added to apply metadata to videos upon ingest.
+		~ Charles Dorn - 12-13-2019
+		- Skipping this step during SAN recovery.
+		~Charles Dorn - 2-7-2020
+		- Fixed associated Vantage workflow, adding this step back
+		~ DT 2-7-2020
+	--> 
+	<!--
+	<executeSubflowStep name="Get Tech Details"
+						targetWorkflowId="getVideoTechDetails"
+						subjectChangePath="${assetMaster}"
+						continueOnException="true"
+						nextStep="get asset version"
+		/>
+		
+
+	<setContextData name="get asset version"
+		targetDataDef="assetVersion"
+		valueExpression="${assetMaster.currentVersion}"
+		pctComplete="72"
+		devStep="true"
+		nextStep="verify file ingested"
+		/>
+
+	<noopStep name="verify file ingested"
+		executionLabelExpression="verifying file is in Repo"
+		>
+		<transition condition="${#fileExists(assetMaster.mezzanine.file)}">
+			<targetStepName>backup asset</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>fail file not ingested</targetStepName>
+		</transition>
+	</noopStep>
+	-->
+
+	<!-- Ariel, do not worry about finding this subflow -->
+
+	<!--
+	<executeSubflowStep name="backup asset"
+		targetWorkflowId="storageManagerArchiveAssetMaster"
+		waitForCompletionExpression="false"
+		subjectChangePath="${ assetMaster }"
+		pctComplete="99"
+		nextStep="end"
+		>
+		<subflowContextDataMapping parentDataDef="backupAction" subflowDataDef="archiveOrBackup" />
+	</executeSubflowStep>
+	-->
+
+	
+	<!-- ................................................... End Steps .................................................... -->
+	<noopStep name="end"
+			  pctComplete="100"/>
+	
+	<failWorkflowStep name="fail file not ingested"
+					  reasonExpression="fail file not ingested"
+					  executionLabelExpression="Ingest Fail. Please contact Administrator"
+					  pctComplete="100"/>
+
+
+	
+	<!-- ............................................... Context Data Defs ................................................ -->
+	<!-- ....... User Input Variables ........ -->
+	<contextDataDef name="fileToIngest" 		    dataType="File"				userInput="true"    label="1: File To Ingest"   required="true"/>
+	<contextDataDef name="ingestWithAudio78"        dataType="Boolean"          userInput="true"    label="2: Ingest With Audio Channels 7+8"       defaultDataExpression="false">
+		<description>
+			Ingest this asset using settings for audio tracks 7 and 8.
+		</description>
+	</contextDataDef>
+	<contextDataDef name="metadataForm"             dataType="MetadataForm"     userInput="true"    label="3: Metadata Form"/>
+	<contextDataDef name="userEmailAddress" 		 dataType="String" defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+
+	<!-- .......... Input Variables .......... -->
+	<!-- backup options -->
+	<contextDataDef name="backupOnIngest"           dataType="Boolean"          defaultDataExpression="true" />
+	<contextDataDef name="backupAction"             dataType="String"           defaultDataExpression="backup" />
+	<!-- metadata options -->
+	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>
+	<contextDataDef name="collections"              dataType="Data Object"      multiple="true"/>
+	<contextDataDef name="categories"               dataType="Data Object"      multiple="true"/>
+	<contextDataDef name="jsonMetadata"             dataType="JSON">
+		<description>
+			Single JSON where:
+			Keys are metadata property names
+			Values are what to set the matching property to on this asset
+		</description>
+	</contextDataDef>
+	<contextDataDef name="linkMetadata"             dataType="JSON"             multiple="true">
+		<description>
+			Array of JSONs where:
+			Each JSON has 2 Keys (propertyName and linkInfo):
+			propertyName's value is a metadata property name of type link
+			linkInfo's value is a JSON with 2 keys (title and url):
+			title's value is the display name for the link
+			url's value is the url to open when the title is clicked on
+		</description>
+	</contextDataDef>
+	<contextDataDef name="metadataFormType"         dataType="String"           defaultDataExpression="access">
+		<description>
+			TEMPORARY!!! (Forms will be standardized to the same format in the future)
+			Valid types = "access" or "panel"
+		</description>
+	</contextDataDef>
+	<!-- ingest source options (defaults in subflow) -->
+	<contextDataDef name="sourceAsMezz"             dataType="Boolean"          defaultDataExpression="true"/>
+	<contextDataDef name="checkForDuplicate"        dataType="Boolean"          defaultDataExpression="${allowDuplicateNamesFlag != null? !allowDuplicateNamesFlag : null}"/>
+	<contextDataDef name="overwriteExisting"        dataType="Boolean"/>
+	<contextDataDef name="versionDuplicate"         dataType="Boolean"/>
+	<contextDataDef name="assetName"                dataType="String"           defaultDataExpression="${versionName != null? versionName : null}"/>
+	<contextDataDef name="assetVersion" 		    dataType="Data Object"      defaultDataExpression="${assetForVersioning != null? assetForVersioning : null}">
+		<description>
+			Passed in to operate on an existing asset rather than looking for a duplicate asset or creating a new one
+		</description>
+	</contextDataDef>
+	<!-- transcode options -->
+	<contextDataDef name="failOnProxiesError"       dataType="Boolean"/>
+	<contextDataDef name="asyncProxies"             dataType="Boolean"          defaultDataExpression="${asyncProxiesFlag != null? asyncProxiesFlag : true}"/>
+	<!-- create proxies? (defaults in subflows) -->
+	<contextDataDef name="prioritiesJson"           dataType="JSON">
+		<description>
+			A JSON with the structure:
+			{"mezzanine":w, "proxy":x, "thumbnailVideo":y, "thumbnail":z}
+		</description>
+	</contextDataDef>
+	<contextDataDef name="createMezz"               dataType="Boolean"/>
+	<contextDataDef name="createProxy"              dataType="Boolean"/>
+	<contextDataDef name="createThumb"              dataType="Boolean"/>
+	<contextDataDef name="createThumbVideo"         dataType="Boolean"/>
+	<!-- supply a file for proxies? -->
+	<contextDataDef name="mezzFile"                 dataType="File"/>
+	<contextDataDef name="proxyFile"                dataType="File"/>
+	<contextDataDef name="thumbFile"                dataType="File"/>
+	<contextDataDef name="thumbVideoFile"           dataType="File"/>
+	<!-- Templates/Args for proxies creation (defaults in subflows) -->
+	<contextDataDef name="videoMezzTemplate"    	dataType="String"/>
+	<contextDataDef name="videoProxyTemplate"    	dataType="String"           defaultDataExpression="${ingestWithAudio78 ? 'CreateProxyVideo78' : null}"/>
+	<contextDataDef name="videoThumbVideoTemplate"  dataType="String"/>
+	<contextDataDef name="videoThumbnailPercentage" dataType="Integer"/>
+	<contextDataDef name="audioProxyTemplate"       dataType="String"/>
+	<contextDataDef name="imageProxyArguments"      dataType="String"/>
+	<contextDataDef name="imageThumbArguments"      dataType="String"/>
+	<contextDataDef name="documentProxyArguments"   dataType="String"/>
+	<contextDataDef name="documentThumbArguments"   dataType="String"/>
+	
+	<!-- ....... Processing Variables ........ -->
+	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	    multiple="true"/>
+	<contextDataDef name="assetMaster" 			    dataType="Data Object"/>
+	<contextDataDef name="assetVersion"             dataType="Data Object"/>
+	
+	<!-- ..... Deprecated But Supported ...... -->
+	<contextDataDef name="assetForVersioning"       dataType="Data Object"/>
+	<contextDataDef name="asyncProxiesFlag"         dataType="Boolean"/>
+	<contextDataDef name="skipMezzanineFlag"        dataType="Boolean"/>
+	<contextDataDef name="allowDuplicateNamesFlag"  dataType="Boolean"/>
+	<contextDataDef name="versionName"              dataType="String"/>
+
+</workflow>

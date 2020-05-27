@@ -1,0 +1,628 @@
+<!--
+  ~ Hallmark Channel Custom Reach Engine Workflow
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+    id="embedCaptions"
+    name="Embed Captions to Video"
+    executionLabelExpression="Embed Captions | Asset:${newAssetName}"
+    description=""
+    subjectDOClassName="VideoAssetMaster"
+    deadlineExpression=""
+    subjectQualifierExpression="${metadata?.categoryNames.indexOf('House Master') != -1 OR metadata?.categoryNames.indexOf('Playback Master') != -1 OR metadata?.categoryNames.indexOf('Promo') != -1}"
+    sdkVersion="4.2"
+    resultDataDef="assetVersion"
+    >
+
+    <initialStepName>check caption info</initialStepName>
+
+    <noopStep name="check caption info"
+        pctComplete="5"
+        >
+        <transition condition="${captionLabel == 'Sidecar File Available'}">
+            <targetStepName>check house code</targetStepName>
+        </transition>
+        <transition condition="${captionLabel == null}">
+            <targetStepName>check house code</targetStepName>
+        </transition>
+        <transition condition="${captionLabel == 'Not Captioned'}">
+            <targetStepName>check house code</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>fail caption info</targetStepName>
+        </transition>
+    </noopStep>
+
+    <noopStep name="check house code"
+        pctComplete="10"
+        >
+        <transition condition="${captionLabel == 'Not Captioned' AND subject.metadata?.categoryNames.indexOf('Promo') != -1}">
+            <targetStepName>check for archived content</targetStepName>
+        </transition>
+        <transition condition="${houseCode != null }">
+            <targetStepName>check for archived content</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>email missing house code</targetStepName>
+        </transition>
+    </noopStep>
+
+    <noopStep name="check for archived content"
+        pctComplete="15"
+        >
+        <transition condition="${contentArchived}">
+            <targetStepName>restore content</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>get asset metadata</targetStepName>
+        </transition>
+    </noopStep>
+
+    <executeSubflowStep
+        name="restore content"
+        subjectChangePath="${subject}"
+        targetWorkflowId="${restoreWorkflowId}"
+        nextStep="get asset metadata"
+        pctComplete="20"
+        />
+
+    <executeSubflowStep name="get asset metadata"
+        targetWorkflowId="extractAssetMetadata"
+        resultDataDef="jsonMetadata"
+        pctComplete="25"
+        >
+        <transition condition="${captionLabel == 'Not Captioned' AND subject.metadata?.categoryNames.indexOf('Promo') != -1}">
+            <targetStepName>submit to rev for captioning</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>set sidecar fileName</targetStepName>
+        </transition>
+        <subflowContextDataMapping parentDataDef="video" subflowDataDef="asset"/>
+    </executeSubflowStep>
+
+
+    <setContextData name="set sidecar fileName"
+                    pctComplete="30"
+                    targetDataDef="fileName"
+                    valueExpression="${houseCode}.${sidecarExtensionOrder[sidecarExtensionCounter]}"
+                    nextStep="find sidecar captions">
+    </setContextData>
+
+
+    <executeSubflowStep name="find sidecar captions"
+                        targetWorkflowId="SearchFiles"
+                        resultDataDef="resultFilePathList"
+
+    >
+        <transition condition="${resultFilePathList.size() &gt; 0}">
+            <targetStepName>set captions first result</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>increment sidecar extension counter</targetStepName>
+        </transition>
+
+        <subflowContextDataMapping parentDataDef="fileName"		        subflowDataDef="fileName"/>
+        <subflowContextDataMapping parentDataDef="rootDirectoryPath"    subflowDataDef="rootDirectoryPath"/>
+        <subflowContextDataMapping parentDataDef="recursiveSearch"    subflowDataDef="recursiveSearch"/>
+    </executeSubflowStep>
+
+    <setContextData name="increment sidecar extension counter"
+                    targetDataDef="sidecarExtensionCounter"
+                    valueExpression="${sidecarExtensionCounter + 1}"
+    >
+        <transition condition="${sidecarExtensionCounter &lt; sidecarExtensionOrder.size()}">
+            <targetStepName>set sidecar fileName</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>failure missing caption step</targetStepName>
+        </transition>
+    </setContextData>
+
+
+    <setContextData name="set captions first result"
+                    targetDataDef="captionsFile"
+                    valueExpression="${resultFilePathList[0]}"
+                    nextStep="check if caption file is ttml"
+    />
+
+
+
+    <executeSubflowStep name="submit to rev for captioning"
+        targetWorkflowId="createCaptionsForVideo"
+        resultDataDef="captionsFile"
+        nextStep="set sidecar fileName"
+        pctComplete="40"
+        >
+        <subflowContextDataMapping parentDataDef="uuid" subflowDataDef="uuid"/>
+    </executeSubflowStep>
+
+
+    <!-- If caption file is TTML or DFXP, then invoke Fix Caption Positioning -->
+    <noopStep   name="check if caption file is ttml"
+                pctComplete="50">
+        <transition condition="${#extension(captionsFile) == 'ttml' OR #extension(captionsFile) == 'dfxp'}">
+            <targetStepName>Fix Caption Positioning</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>embed captions</targetStepName>
+        </transition>
+    </noopStep>
+              
+
+    <!-- Fix the returned TTML/DFXP file!! The returned file may have bad position data-->
+    <groovyStep name="Fix Caption Positioning"
+        resultDataDef="captionsFile"
+        nextStep="embed captions"
+        >
+        <script>
+            <![CDATA[
+// Read in the caption document
+def lines = []
+new File(captionsFile.absolutePath).eachLine { aLine ->
+	lines << aLine
+}
+
+def before = lines.size()
+int counter = before
+
+
+for (int ping = 0; ping < counter; ping ++) {
+
+	// Wonky groovy pattern definition
+	def placeStyle = ~/\<style xml\:id=\"basic\" tts\:textAlign=\"center\" \/\>/
+
+
+	def foundOne = lines[ping] =~ placeStyle
+
+		if (foundOne) {
+
+			lines.set(ping, '<style xml:id=\"basic\" tts:textAlign=\"center\" tts:origin=\"10% 70%\"/>')
+
+		}
+
+} //END timecode TEST
+
+// Write the new .ttml file
+File ttmlFile = new File("${primaryStorageVolume}/ReachEngineNoBkup/temp/vantage/" + uuid + ".ttml")
+
+for(eachLine in lines){
+
+	ttmlFile.append(eachLine + "\n")
+
+}
+
+// return the file rather than the array
+//return lines
+return ttmlFile
+            ]]> 
+        </script>
+    </groovyStep>
+
+
+
+    <convertVideoStep name="embed captions"
+                      mediaConversionTemplateExpression="${targetTemplateName}"
+                      sourceFileExpression="${sourceFile}"
+                      executionLabelExpression="Embedding Captions using TT Flip"
+                      resultDataDef="transcodeResultFile"
+                      pctComplete="60"
+                      nextStep="set categories and collections"
+    >
+        <conversionParam name="Caption File">${#mapPath(captionsFile.absolutePath, 'vantage')}</conversionParam>
+        <conversionParam name="Format">${sidecarExtensionOrder[sidecarExtensionCounter].toUpperCase()}</conversionParam>
+        <conversionParam name="UUID">${uuid}</conversionParam>
+    </convertVideoStep>
+
+<!--
+        <noopStep name="check if content is promo"
+              >
+        <transition condition="${subject.metadata?.categoryNames.indexOf('Promo') != -1}">
+            <targetStepName>embed with new routine</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>write XML</targetStepName>
+        </transition>
+    </noopStep>
+
+        <groovyStep name="write XML"
+                    resultDataDef="groovyReturn"
+                    executionLabelExpression="Writing Transcode Instructions | ${uuid}.xml"
+                    pctComplete="50"
+                    nextStep="embed captions from xml"
+        >
+            <script>
+                <![CDATA[
+
+    import groovy.xml.*
+    import com.levelsbeyond.workflow.sdk.function.MapPathFunction
+
+    println "********** Start building xmlFile "+ xmlFile.absolutePath + ") **********"
+    def xmlBuilder = new StreamingMarkupBuilder()
+    xmlBuilder.encoding = 'UTF-8'
+    def vantageXml = xmlBuilder.bind {
+        reachEngineAsset {
+            newFileName(uuid)
+            sourceFile(windowsPath)
+            frameRate(video.mezzanine.frameRate)
+            user(currentUser)
+            captions(captionLabel)
+            format(formatLabel)
+            houseCode(houseCode)
+            captionsFile(MapPathFunction.mapPath(captionsFile.absolutePath, 'vantage'))
+            startTimecode(video.startTimecode)
+        }
+    }
+        println "XML Create:"
+        println XmlUtil.serialize(vantageXml)
+        new File(xmlFile.absolutePath).withWriter{ out ->
+            out.write(XmlUtil.serialize(vantageXml)) }
+
+            println "********* End building xmlFile (" + xmlFile.absolutePath + ") *********"
+    return true
+
+                ]]>
+            </script>
+        </groovyStep>
+
+
+    <startVideoConversion name="embed captions from xml"
+        sourceFileExpression="${xmlFile}"
+        mediaConversionTemplateExpression="${targetTemplateName}"
+        resultDataDef="vantageJobId"
+        executionLabelExpression="Transcoding video from created xml >>> ${xmlFile.absolutePath}"
+        nextStep="get result file"
+        pctComplete="40"
+    />
+
+
+    <getVideoConversionResult name="get result file"
+        conversionId="${vantageJobId}"
+        resultKey="Reach Engine Asset"
+        resultDataDef="transcodeResultFile"
+        executionLabelExpression="Getting converted file from nickname 'Reach Engine Asset' Job ID ${vantageJobId}"
+        pctComplete="60"
+        nextStep="set categories and collections"
+        />
+
+    <convertVideoStep name="embed with new routine"
+        mediaConversionTemplateExpression="Embed Captions to Promo"
+        sourceFileExpression="${sourceFile}"
+        executionLabelExpression="Embedding Captions using TT Flip"
+        resultDataDef="transcodeResultFile"
+        pctComplete="60"
+        nextStep="set categories and collections"
+        >
+        <conversionParam name="Audio Tracks">${jsonMetadata.audioTracks}</conversionParam>
+        <conversionParam name="Caption File">${#mapPath(captionsFile.absolutePath, 'vantage')}</conversionParam>
+        <conversionParam name="UUID">${uuid}</conversionParam>
+    </convertVideoStep>
+-->
+
+    <setContextData name="set categories and collections"
+        nextStep="ingest new file"
+        >
+        <set targetDataDef="collections" valueExpression="${(jsonMetadata.get('collections')?.asText() != null AND jsonMetadata.get('collections')?.asText() != '') ? #splitString( jsonMetadata.get('collections').asText(), '|' , false, false ) : null}"/>
+        <set targetDataDef="categoryNames" valueExpression="${(jsonMetadata.get('categoryNames')?.asText() != null AND jsonMetadata.get('categoryNames')?.asText() != '') ? jsonMetadata.get('categoryNames').asText() : null}"/>
+    </setContextData>
+
+    <executeSubflowStep name="ingest new file"
+        targetWorkflowId="hallmarkAnyAssetIngest"
+        subjectChangePath="${transcodeResultFile}"
+        subflowTargetDataDef="fileToIngest"
+        resultDataDef="assetVersion"
+        executionLabelExpression="Ingesting ${transcodeResultFile.name}"
+        pctComplete="80"
+        >
+        <transition condition="true">
+            <targetStepName>update name</targetStepName>
+        </transition>
+
+        <subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
+        <subflowContextDataMapping parentDataDef="skipMezzanineFlag"        subflowDataDef="skipMezzanineFlag"/>
+        <subflowContextDataMapping parentDataDef="allowDuplicateNamesFlag"  subflowDataDef="allowDuplicateNamesFlag"/>
+        <subflowContextDataMapping parentDataDef="asyncProxiesFlag"         subflowDataDef="asyncProxiesFlag"/>
+        <subflowContextDataMapping parentDataDef="collections"              subflowDataDef="collections"/>
+    </executeSubflowStep>
+
+    <saveDataObjectStep name="update name"
+        dataObjectExpression="${assetVersion.masterAsset}"
+        executionLabelExpression="Setting ${newAssetName} as the Name of the asset"
+        >
+        <transition condition="true">
+            <targetStepName>add category</targetStepName>
+        </transition>
+        <property name="name">${newAssetName}</property>
+    </saveDataObjectStep>
+
+    <nimbus:changeMetaCategoryStep name="add category"
+        executionLabelExpression="Saving theses categories to the new asset ${categoryNames}"
+        targetObjectExpression="${assetVersion.masterAsset}"
+        nextStep="update metadata"
+        >
+        <nimbus:addCategory>${categoryNames}</nimbus:addCategory>
+    </nimbus:changeMetaCategoryStep>
+
+    <saveDataObjectStep name="update metadata"
+        dataObjectExpression="${assetVersion.masterAsset.metadata}"
+        executionLabelExpression="Updating Metadata with known values"
+        >
+        <transition condition="true">
+            <targetStepName>get video resolution</targetStepName>
+        </transition>
+        <property name="unableToGenerateMp4Proxy"></property>
+        <property name="audioBitDepth">24</property>
+        <property name="closedCaptionInfo"></property>
+        <property name="disasterInspectionResult"></property>
+    </saveDataObjectStep>
+
+    <setContextData name="get video resolution"
+        executionLabelExpression="get updated video resolution value from new asset"
+        nextStep="check video resolution"
+        >
+        <set targetDataDef="videoResolutionValue" valueExpression="${assetVersion.masterAsset.metadata.videoResolution}"/>
+        <set targetDataDef="videoResolutionLabel" valueExpression="${#picklistLabel('videoResolution', videoResolutionValue)}"/>
+    </setContextData>
+
+    <noopStep name="check video resolution"
+        executionLabelExpression="Video Resolution is ${videoResolutionLabel}"
+        >
+        <transition condition="${videoResolutionLabel == 'SD'}">
+            <targetStepName>set metadata for 608</targetStepName>
+        </transition>
+        <transition condition="${videoResolutionLabel == 'HD' OR videoResolutionLabel == 'UHD'}">
+            <targetStepName>set metadata for 708</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>set metadata for 708</targetStepName>
+        </transition>
+    </noopStep>
+
+    <saveDataObjectStep name="set metadata for 608"
+        dataObjectExpression="${assetVersion.masterAsset.metadata}"
+        executionLabelExpression="Updating Metadata with known values"
+        >
+        <transition condition="true">
+            <targetStepName>delete transcode artifact</targetStepName>
+        </transition>
+        <property name="closedCaptionInfo">Embedded 608</property>
+    </saveDataObjectStep>
+
+    <saveDataObjectStep name="set metadata for 708"
+        dataObjectExpression="${assetVersion.masterAsset.metadata}"
+        executionLabelExpression="Updating Metadata with known values"
+        >
+        <transition condition="true">
+            <targetStepName>delete transcode artifact</targetStepName>
+        </transition>
+        <property name="closedCaptionInfo">Embedded 608 and 708</property>
+    </saveDataObjectStep>
+
+    <deleteFileStep
+        name="delete transcode artifact"
+        sourceFilesExpression="${transcodeResultFile}"
+        executionLabelExpression="Deleting transcode artifact ${transcodeResultFile.absolutePath}"
+        >
+        <transition condition="${deleteAfterEmbed}">
+            <targetStepName>delete original video</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>email user complete</targetStepName>
+        </transition>
+    </deleteFileStep>
+
+    <executeSubflowStep name="delete original video"
+        targetWorkflowId="deleteAssetMaster"
+        subjectChangePath="${subject}"
+        resultDataDef="deleteSuccess"
+        >
+        <transition condition="${true}">
+            <targetStepName>email user complete</targetStepName>
+        </transition>
+        <subflowContextDataMapping parentDataDef="confirmDelete" subflowDataDef="confirm"/>
+    </executeSubflowStep>
+
+
+    <emailStep name="email user complete"
+               pctComplete="95"
+        emailAddressesExpression="${currentEmail}"
+        subjectExpression="[Reach Engine] Embed Captions ${newAssetName}"
+        >
+        <body>
+            <![CDATA[
+            Hello ${userFirstName}
+            Captions have been embedded for job ${newAssetName}
+
+            Need Help with Reach Engine? Please email this address:
+            mediasupport@crownmedia.com
+            ]]>
+        </body>
+        <transition condition="true">
+            <targetStepName>end</targetStepName>
+        </transition>
+    </emailStep>
+
+    <emailStep name="original failed to delete"
+               pctComplete="95"
+        emailAddressesExpression="mediasupport@crownmedia.com"
+        subjectExpression="[Reach Engine] Failed to Delete ${newAssetName}"
+        >
+        <body>
+            <![CDATA[
+            Hello Admin,
+
+            Reach Engine Failed to Delete ${newAssetName} after embedding captions.
+
+            Please investigate the problem.
+
+            User: ${currentUser}
+            House Code: ${houseCode}
+            Asset: ${newAssetName}
+            Filename: ${#filename(sourceFile)}
+            Path: ${#absPath(sourceFile)}
+
+            ]]>
+        </body>
+        <transition condition="true">
+            <targetStepName>fail original video delete</targetStepName>
+        </transition>
+    </emailStep>
+
+    <emailStep name="email user failed to associate captions"
+               pctComplete="95"
+        emailAddressesExpression="${currentEmail}"
+        subjectExpression="[Reach Engine] Captions Unavailable ${newAssetName}"
+        >
+        <body>
+            <![CDATA[
+            Hello ${userFirstName}
+            Captions were not found for ${newAssetName}.
+
+            Please ensure that a valid SCC caption file matches to:
+            ${houseCode}
+
+            Need Help with Reach Engine? Please email this address:
+            mediasupport@crownmedia.com
+
+            ]]>
+        </body>
+        <transition condition="${true}">
+            <targetStepName>fail captions not found</targetStepName>
+        </transition>
+    </emailStep>
+
+    <emailStep name="email missing house code"
+               pctComplete="95"
+        emailAddressesExpression="${currentEmail}"
+        subjectExpression="[Reach Engine] Captions Embedding Failure ${newAssetName}"
+        >
+        <body>
+            <![CDATA[
+            Hello ${userFirstName}
+            Captions were not embedded for ${newAssetName}.
+
+            The House Number was not provided for the asset.
+            Please enter this value in Reach Engine and resubmit.
+
+            Need Help with Reach Engine? Please email this address:
+            mediasupport@crownmedia.com
+
+            ]]>
+        </body>
+        <transition condition="${true}">
+            <targetStepName>fail house code missing</targetStepName>
+        </transition>
+    </emailStep>
+
+    <failWorkflowStep name="fail caption info"
+        reasonExpression="Caption information on asset is either missing or incorrect."
+        executionLabelExpression="Caption information on asset is either missing or incorrect."
+        pctComplete="100"
+        />
+
+    <failWorkflowStep name="fail original video delete"
+        reasonExpression="Original video failed to delete."
+        executionLabelExpression="Original video failed to delete."
+        pctComplete="100"
+    />
+
+    <failWorkflowStep name="fail captions not found"
+        reasonExpression="Captions not found for embedding."
+        executionLabelExpression="Captions not found for embedding."
+        pctComplete="100"
+    />
+
+    <failWorkflowStep name="fail house code missing"
+        reasonExpression="House Code or House Number missing from asset. Cannot continue."
+        executionLabelExpression="House Code or House Number missing from asset. Cannot continue."
+        pctComplete="100"
+    />
+
+    <failWorkflowStep name="failure missing caption step"
+                      reasonExpression="Caption file does not exist. Cannot continue."
+                      executionLabelExpression="Caption file does not exist. Cannot continue."
+                      pctComplete="100"
+    />
+
+    <noopStep name="end"
+              pctComplete="100"/>
+
+
+    <!-- Returned File from REV -->
+    <contextDataDef name="captionsFile"             dataType="File"/>
+    <contextDataDef name="captionsFileVantage"      dataType="String" />
+
+    <!-- Array of collections from existing asset -->
+    <contextDataDef name="collections"              dataType="Data Object"  multiple="true"/>
+    <!-- Bar separated list of category names from existing asset -->
+    <contextDataDef name="categoryNames"            dataType="String"       multiple="false"/>
+    <!-- All custom metadata from the existing asset -->
+    <contextDataDef name="jsonMetadata"             dataType="JSON"         defaultDataExpression="{}"/>
+    <!-- Delete data defs-->
+    <contextDataDef name="reason"                   dataType="String"       defaultDataExpression="Asset will be replaced"/>
+    
+    <!-- newAssetName saves the subject.name of the parent asset -->
+    <contextDataDef name="newAssetName"             dataType="String"       defaultDataExpression="${subject.name}"/>
+    <contextDataDef name="baseFileName"             dataType="String"       defaultDataExpression="${#baseFilename(sourceFile)}"/>
+    <contextDataDef name="deleteAfterEmbed"         dataType="Boolean"      userInput="true" label="Delete Source on Completion?"/>
+    <contextDataDef name="updateTechDetails"        dataType="Boolean"      userInput="true" label="Update Tech Details?"/>
+
+
+    <!--
+    <contextDataDef name="sidecarExtension"         dataType="String"       defaultDataExpression="${subject.metadata?.categoryNames.indexOf('Promo') != -1 ? 'ttml' : 'scc'}" label="Sidecar file type">
+        <picklist>
+            <picklistItem value="scc" label="SCC"/>
+            <picklistItem value="mcc" label="MCC"/>
+            <picklistItem value="ttml" label="TTML"/>
+        </picklist>
+    </contextDataDef>
+    -->
+
+    <contextDataDef name="sidecarExtensionOrder"   dataType="String"       multiple="true" defaultDataExpression="${subject.metadata?.categoryNames.indexOf('Promo') != -1 ? #splitString('ttml,dfxp,mcc,scc',',',true,true) : #splitString('scc,mcc,ttml,dfxp',',',true,true)}" />
+    <contextDataDef name="sidecarExtensionCounter" dataType="Integer"      defaultDataExpression="0"/>
+
+    <contextDataDef name="confirmDelete"            dataType="Boolean"      defaultDataExpression="${deleteAfterEmbed}"/>
+    <contextDataDef name="deleteSuccess"            dataType="Boolean"/>
+    <contextDataDef name="videoResolutionValue"     dataType="String"       defaultDataExpression=""/>
+    <contextDataDef name="videoResolutionLabel"     dataType="String"       defaultDataExpression=""/>
+    <contextDataDef name="formatValue"              dataType="String"       defaultDataExpression="${subject.metadata.assetFormat}"/>
+    <contextDataDef name="formatLabel"              dataType="String"       defaultDataExpression="${#picklistLabel('assetFormat', formatValue)}"/>
+    <contextDataDef name="reachEngineApiUrl"        dataType="String"       defaultDataExpression="${#sysconfig('ReachEngineAPI.reachEngineURL')}"/>
+    <contextDataDef name="systemApiKey"             dataType="String"       defaultDataExpression="${#sysconfig('ReachEngineAPI.systemUserApiKey')}"/>
+    <contextDataDef name="vantageJobId"             dataType="String"/>
+    <contextDataDef name="skipMezzanineFlag"        dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="windowsPath"              dataType="String"       defaultDataExpression="${#mapPath(sourceFile.absolutePath, 'vantage')}"/>
+    <contextDataDef name="allowDuplicateNamesFlag"  dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="asyncProxiesFlag"         dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="contentArchived"          dataType="Boolean"      defaultDataExpression="${subject.mezzanine.truncatedFlag}"/>
+    <contextDataDef name="assetVersion"             dataType="Data Object"/>
+    <contextDataDef name="xmlFile"                  dataType="File"         defaultDataExpression="${primaryStorageVolume}/ReachEngineNoBkup/temp/vantage/${uuid}.xml"/>
+    <contextDataDef name="uuid"                     dataType="String"       defaultDataExpression="${#uuid().toString()}"/>
+    <contextDataDef name="houseCode"                dataType="String"       defaultDataExpression="${subject.metadata.houseCode}"/>
+    <contextDataDef name="captionValue"             dataType="String"       defaultDataExpression="${subject.metadata.closedCaptionInfo}"/>
+    <contextDataDef name="captionLabel"             dataType="String"       defaultDataExpression="${#picklistLabel('closedCaptionInfo', captionValue)}"/>
+    <contextDataDef name="metadataURL"              dataType="String"/>
+    <contextDataDef name="restoreWorkflowId"        dataType="String"       defaultDataExpression="${#sysconfig('workflow.default.restoreAssetWorkflowID')}"/>
+    <contextDataDef name="targetTemplateName"       dataType="String"       defaultDataExpression="Embed Captions"/>
+    <contextDataDef name="sourceFile"               dataType="File"         defaultDataExpression="${subject.mezzanine.file}"/>
+    <contextDataDef name="transcodeResultFile"      dataType="File"/>
+    <contextDataDef name="priority"                 dataType="Integer"      defaultDataExpression="85"/>
+    <contextDataDef name="userFirstName"            dataType="String"       defaultDataExpression="${#this.startedBy.firstName}"/>
+    <contextDataDef name="currentUser"              dataType="String"       defaultDataExpression="${#this.startedBy.userName}"/>
+    <contextDataDef name="currentEmail"             dataType="String"       defaultDataExpression="${#this.startedBy.emailAddress}"/>
+    <contextDataDef name="video"                    dataType="Data Object"  defaultDataExpression="${subject}"/>
+    <contextDataDef name="groovyReturn"             dataType="Boolean"      defaultDataExpression="false"/>
+    <contextDataDef name="primaryStorageVolume"     dataType="String"       defaultDataExpression="${#sysconfig('storage.primary.path')}"/>
+
+<!-- These are the searching Datadefs -->
+    <contextDataDef name="rootDirectoryPath"        dataType="String"       defaultDataExpression="${primaryStorageVolume}/Media Ops/Captions/" />
+    <contextDataDef name="fileName"                 dataType="String" />
+    <contextDataDef name="recursiveSearch"          dataType="Boolean"      defaultDataExpression="true" />
+    <contextDataDef name="resultFilePathList"   dataType="String"   multiple="true" />
+
+
+
+</workflow>
+           

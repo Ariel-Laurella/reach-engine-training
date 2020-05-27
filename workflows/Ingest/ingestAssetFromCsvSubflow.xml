@@ -1,0 +1,190 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		  xmlns="http://levelsbeyond.com/schema/workflow"
+		  xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-4.9.xsd"
+		  id="ingestAssetFromCsvSubflow"
+		  name="Ingest Assets From CSV Subflow"
+		  executionLabelExpression="Ingest Asset from CSV Subflow - ${ingestJobInfo.name}"
+		  subjectDOClassName=""
+		  showInUserInterface="false"
+		  resultDataDef=""
+		  deadlineExpression=""
+		  sdkVersion="2.3.16"
+>
+	<initialStepName>validate input data</initialStepName>
+	
+	<noopStep name="validate input data"
+			  >
+		<transition condition="${#fileExists(sourceFile) AND jobName != null AND jobName != '' AND houseCode != null AND houseCode != ''}">
+			<targetStepName>query for collection</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>set failure missing input data</targetStepName>
+		</transition>
+	</noopStep>
+
+	<setContextData name="set failure missing input data"
+					executionLabelExpression="Setting failure data"
+					nextStep="log result"
+					>
+		<set targetDataDef="ingestStatus"	valueExpression="FAILURE"/>
+		<set targetDataDef="ingestMessage"	valueExpression="Missing required data. Name, House Code, or SourceFile. Please check CSV input and try again."/>
+	</setContextData>
+
+	<queryStep name="query for collection"
+			   executionLabelExpression="Querying for collections that match ${jobName}"
+			   targetDataObjectClass="AssetCollection"
+			   pctComplete="10"
+			   resultDataDef="collection"
+			   >
+		<exception-transition type="SAXParseException">
+			<targetStepName>set failure bad query</targetStepName>
+		</exception-transition>
+		<transition condition="${collection == null}">
+			<targetStepName>create collection</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>update metadata on collection</targetStepName>
+		</transition>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="name" op="eq" nullTargets="false">
+			<test value="${T(org.apache.commons.lang.StringEscapeUtils).escapeXml(jobName)}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+
+	<setContextData name="set failure bad query"
+					executionLabelExpression="Setting failure data"
+					nextStep="log result"
+	>
+		<set targetDataDef="ingestStatus"	valueExpression="FAILURE"/>
+		<set targetDataDef="ingestMessage"	valueExpression="Bad query string. Name may have illegal characters. Please check CSV input and try again."/>
+	</setContextData>
+
+	<saveDataObjectStep name="create collection"
+						executionLabelExpression="Creating Collection ${jobName}"
+						targetDataObjectClass="AssetCollection"
+						pctComplete="15"
+						resultDataDef="collection"
+						nextStep="update metadata on collection"
+						>
+		<property name="name">${jobName}</property>
+	</saveDataObjectStep>
+
+	<saveDataObjectStep name="update metadata on collection"
+						executionLabelExpression="Updating houseCode on collection to ${houseCode}"
+						dataObjectExpression="${collection.metadata}"
+						jsonValuesDataDef="jsonMetadata"
+						pctComplete="20"
+						nextStep="sanitize file name"
+						/>
+
+	<copyFileStep name="sanitize file name"
+				  sourceFileExpression="${sourceFile}"
+				  targetDirectoryExpression="${tempDir}"
+				  targetFilenameExpression="${ingestJobInfo.newFileName}"
+				  resultDataDef="tempFileToIngest"
+				  nextStep="ingest asset"
+				  />
+
+	<executeSubflowStep name="ingest asset"
+						executionLabelExpression="Ingesting Asset"
+						targetWorkflowId="hallmarkAnyAssetIngest"
+						pctComplete="80"
+	>
+		<transition condition="${#fileExists(tempFileToIngest)}">
+			<targetStepName>delete temporary file</targetStepName>
+		</transition>
+		<transition condition="${deleteAfterIngest}">
+			<targetStepName>delete source file</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>log result</targetStepName>
+		</transition>
+		<subflowContextDataMapping parentDataDef="jobName"			subflowDataDef="assetName"/>
+		<subflowContextDataMapping parentDataDef="tempFileToIngest"	subflowDataDef="fileToIngest"/>
+		<subflowContextDataMapping parentDataDef="collection"		subflowDataDef="collections"/>
+		<subflowContextDataMapping parentDataDef="jsonMetadata" 	subflowDataDef="jsonMetadata"/>
+	</executeSubflowStep>
+
+	<!--
+	<noopStep name="ingest asset"
+	>
+		<transition condition="${#fileExists(tempFileToIngest)}">
+			<targetStepName>delete temporary file</targetStepName>
+		</transition>
+		<transition condition="${deleteAfterIngest}">
+			<targetStepName>delete source file</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+-->
+	<deleteFileStep name="delete temporary file"
+					executionLabelExpression="Cleaning up temporary file"
+					sourceFilesExpression="${tempFileToIngest}"
+					continueOnException="true"
+					>
+		<transition condition="${deleteAfterIngest}">
+			<targetStepName>delete source file</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>log result</targetStepName>
+		</transition>
+	</deleteFileStep>
+
+	<deleteFileStep name="delete source file"
+					executionLabelExpression="Deleting source file."
+					sourceFilesExpression="${sourceFile}"
+					nextStep="log result"
+					/>
+
+	<groovyStep name="log result"
+				resultDataDef="logResult"
+				>
+		<transition condition="${ingestStatus == 'FAILURE'}">
+			<targetStepName>fail workflow</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<script>
+			<![CDATA[
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+Logger ingestLog = LoggerFactory.getLogger("ingestLog")
+ingestLog.info( "Ingest -- Asset: " +  jobName + " | House Code: " + houseCode + " | Status : " + ingestStatus + " | Message: " + ingestMessage )
+
+
+			]]>
+		</script>
+	</groovyStep>
+
+	<failWorkflowStep name="fail workflow"
+					  reasonExpression="Workflow Failed"
+					  executionLabelExpression="Workflow Has failed. Please check the ingest log for details."
+					  />
+
+	<noopStep name="end"/>
+
+	<!-- passed in from parent -->
+	<contextDataDef name="ingestStatus"		dataType="String"		defaultDataExpression="SUCCESS"/>
+	<contextDataDef name="ingestMessage"	dataType="String"		defaultDataExpression="Ingest Success."/>
+	<contextDataDef name="logResult"		dataType="Boolean"		/>
+	<contextDataDef name="ingestJobInfo"	dataType="JSON" />
+	<contextDataDef name="collection"		dataType="Data Object"	/>
+	<contextDataDef name="sourceFile"		dataType="File"			defaultDataExpression="${ingestJobInfo.file}"/>
+	<contextDataDef name="tempFileToIngest"	dataType="File"			/>
+	<contextDataDef name="jobName"			dataType="String"		defaultDataExpression="${ingestJobInfo.name}"/>
+	<contextDataDef name="houseCode"		dataType="String"		defaultDataExpression="${ingestJobInfo.houseCode ?: sourceFile.name}"/>
+	<contextDataDef name="deleteAfterIngest" dataType="Boolean"		defaultDataExpression="${ingestJobInfo.deleteAfterIngest ?: false}"/>
+	<contextDataDef name="jsonMetadata"		dataType="JSON"			defaultDataExpression="{'houseCode': '${houseCode}'}"/>
+	<contextDataDef name="tempDir"			dataType="String"		defaultDataExpression="/stornext/MediaSAN/ReachEngineNoBkup/temp/"/>
+</workflow>

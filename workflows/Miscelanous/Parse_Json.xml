@@ -1,0 +1,20 @@
+
+<!-- Parse a Json from file to variable -->
+<groovyStep name="parse labs manifest file to json"
+            resultDataDef="labsJSONPayload"
+            nextStep="set backlot manfiest data defs"
+>
+    <script>
+        <![CDATA[
+		import groovy.json.JsonSlurper
+
+		File theCreatedJSON = new File(labsManifest.absolutePath)
+		def slurper = new JsonSlurper()
+
+		return slurper.parse(theCreatedJSON)
+		]]>
+    </script>
+</groovyStep>
+
+
+

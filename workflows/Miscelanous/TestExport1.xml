@@ -1,0 +1,31 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+
+          id="TestExport1"
+          name="TestExport1"
+          description="A workflow that says 'Hello'"
+          executionLabelExpression=""
+          subjectDOClassName="AssetMaster"
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion=""
+
+>
+
+    <initialStepName>Copy_File</initialStepName>
+
+
+
+    <copyFileStep name="Copy_File"
+                  executionLabelExpression="Copying The File"
+                  sourceFileExpression="${sourcefile}"
+                  targetDirectoryExpression="${exportpath}"
+                  nextStep="end" />
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourcefile" dataType="File" defaultDataExpression="${subject.mezzanine.file}" />
+    <contextDataDef name="exportpath" dataType="Directory" userInput="true" required="true" label="Select Destination" />
+
+</workflow>

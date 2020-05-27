@@ -1,0 +1,341 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+	id="proxyTimelineTriage"
+	name="Proxy Timeline Triage"
+	executionLabelExpression="Proxy Timeline Triage | Update ${subject.name} with ID of ${subject.id}"
+	description=""
+	subjectDOClassName="Timeline"
+	resultDataDef=""
+	deadlineExpression=""
+	showInUserInterface="true"
+	sdkVersion=""
+	>
+	
+	
+	
+	<initialStepName>check if workflow is executing</initialStepName>
+	
+	
+	<!-- ................................................. Safety Check ................................................... -->
+	<queryStep name="check if workflow is executing"
+		targetDataObjectClass="WorkflowExecution"
+		resultDataDef="currentExecutions"
+		executionLabelExpression="Check to see if this workflow is already currently executing."
+		>
+		<transition condition="${currentExecutions.size() == 0}">
+			<targetStepName>check current proxy options</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>workflow already executing</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="workflowVersion.workflow.key" op="eq">
+							<test value="${ #this.workflow.workflowVersion.workflow.key }" />
+						</condition>
+						<condition property="executionLabel" op="like">
+							<test value="%${subject.id}%" />
+						</condition>
+						<condition property="uuid" op="noteq">
+							<test value="${ #this.workflow.uuid }" />
+						</condition>
+						<condition property="status" op="in">
+							<tests>
+								<test value="CREATED" />
+								<test value="QUEUED" />
+								<test value="EXECUTING" />
+							</tests>
+						</condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>	
+	</queryStep>
+	
+	
+	
+	<!-- ................................................ Old Proxy Steps ................................................. -->
+	<!-- transition hub - determine what to do with the current proxy content if it exists -->
+	<noopStep name="check current proxy options"
+		executionLabelExpression="do we have a proxy? >>> ${currentProxyContent != null} | use current proxy as edit proxy? >>> ${useProxyAsEditProxy}"
+		>
+		<transition condition="${currentProxyContent == null}">
+			<targetStepName>no proxy exists</targetStepName>
+		</transition>
+		<transition condition="${currentProxyContent.contentUses.toString().toLowerCase().contains('edit_proxy')}">
+			<targetStepName>proxy is already edit proxy</targetStepName>
+		</transition>
+		<transition condition="${useProxyAsEditProxy}">
+			<targetStepName>save as edit proxy</targetStepName>
+		</transition>
+		<transition condition="${#extension(currentProxyContent?.file.name).toLowerCase().equals('mp4')}">
+			<targetStepName>proxy is mp4</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>check proxy file exists</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	
+	<!-- save proxy as edit proxy so we do not lose the current proxy -->
+	<saveDataObjectStep name="save as edit proxy"
+		dataObjectExpression="${currentProxyContent}"
+		executionLabelExpression="save proxy content (id = ${currentProxyContent.id}) as EDIT_PROXY"
+		>
+		<transition condition="${#extension(currentProxyContent?.file.name).toLowerCase().equals('mp4')}">
+			<targetStepName>proxy is mp4</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>check proxy file exists</targetStepName>
+		</transition>
+		
+		<property name="contentUses">|${#joinElements(currentProxyContent.contentUses, '|')}|EDIT_PROXY|</property>
+	</saveDataObjectStep>
+	
+	
+	
+	<!-- no proxy currently, so there is nothing to do -->
+	<noopStep name="no proxy exists"
+		executionLabelExpression="no proxy content currently associated with ${subject.name}"
+		nextStep="set unable to create proxy"
+	/>
+
+	
+	
+	
+	<!-- current proxy is already edit proxy, no reason to save it again -->
+	<noopStep name="proxy is already edit proxy"
+		executionLabelExpression="proxy content (id = ${currentProxyContent.id}) is already EDIT_PROXY"
+		>
+		<transition condition="${#extension(currentProxyContent?.file.name).toLowerCase().equals('mp4')}">
+			<targetStepName>proxy is mp4</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>check proxy file exists</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	
+	
+	
+	
+	<!-- ................................................. Check for Current Proxy Steps .................................................. -->
+	<!-- transition hub - we need the proxy file to create a new proxy -->
+	<noopStep name="check proxy file exists"
+		executionLabelExpression="does the proxy file exist? >>> ${currentProxyFile.exists()} at ${currentProxyFile.absolutePath}"
+		>
+		<transition condition="${currentProxyFile.exists()}">
+			<targetStepName>transcode a new proxy</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>set unable to create proxy</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	
+	
+	
+	
+	<!-- ................................................ New Proxy Steps ................................................. -->
+	<!-- create a new proxy -->
+	<convertVideoStep name="transcode a new proxy"
+		executionLabelExpression="Sending the existing proxy '${currentProxyFile.absolutePath}' to be transcoded with the Proxy template >>> ${proxyTemplate}"
+		sourceFileExpression="${currentProxyFile}"
+		mediaConversionTemplateExpression="${proxyTemplate}"
+		resultDataDef="transcodedProxyFile"
+		continueOnException="true"
+		>
+		<transition condition="${transcodedProxyFile.exists()}">
+			<targetStepName>save new proxy</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>set unable to create proxy</targetStepName>
+		</transition>
+	</convertVideoStep>
+	
+	
+	
+	<saveAssetStep name="save new proxy" 
+		executionLabelExpression="Saving video Proxy '${transcodedProxyFile.name}' to proxy repository."
+		contentExpression="${transcodedProxyFile}"
+		assetExpression="${subject.mainVideoAsset.currentVersion}"
+		contentUseExpression="${currentProxyContent != null? '|' + #joinElements(currentProxyContent.contentUses, '|').replace('|EDIT_PROXY|', '') + '|' : 'PROXY'}"
+		nextStep="display new proxy"
+	/>
+	
+	
+	
+	<!-- Display the location of the new proxy file -->
+	<noopStep name="display new proxy"
+		executionLabelExpression="The new MP4 proxy location is: ${subject.mainVideoAsset.currentVersion.proxy.file.absolutePath}"
+		nextStep="determine old proxy deletion"
+	/>
+	
+	
+	
+	<!-- transition hub - should we delete the old proxy? -->
+	<noopStep name="determine old proxy deletion"
+		executionLabelExpression="Is there an old proxy file? >>> ${currentProxyFile.exists()} | Are we still using the old proxy as edit proxy? >>> ${currentProxyFile.exists() AND useProxyAsEditProxy}"
+		>
+		<transition condition="${currentProxyFile.exists() AND useProxyAsEditProxy}">
+			<targetStepName>set mp4 proxy flag</targetStepName>
+		</transition>
+		<transition condition="${currentProxyFile.exists()}">
+			<targetStepName>delete old proxy</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>set mp4 proxy flag</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	
+	<!-- delete old proxy file from filesystem -->
+	<deleteFileStep name="delete old proxy"
+		sourceFilesExpression="${currentProxyFile}"
+		executionLabelExpression="Deleting ${currentProxyFile.absolutePath}"
+		nextStep="set mp4 proxy flag"
+		/>
+	
+	
+	
+	<!-- landing point if a mp4 already exists as the proxy on the timeline. We need to set the mp4 flag. -->
+	<noopStep name="proxy is mp4"
+		executionLabelExpression="the current proxy content (id = ${currentProxyContent.id}) for ${subject.name} is already an mp4"
+		nextStep="set mp4 proxy flag"
+		/>
+	
+	
+	
+	<!-- set has new proxy flag -->
+	<saveDataObjectStep name="set mp4 proxy flag"
+		dataObjectExpression="${subject.metadata}"
+		executionLabelExpression="setting mp4Proxy metadata checkbox to true"
+		nextStep="add asset to timeline"
+		>
+		<property name="mp4Proxy">true</property>
+	</saveDataObjectStep>
+	
+	
+	
+	<!-- create layout info for the timeline -->
+	<nimbus:addAssetToTimelineStep name="add asset to timeline"
+		executionLabelExpression="Add AssetVersion ${subject.mainVideoAsset.currentVersion.id} to Timeline ${subject.id}"
+		targetTimelineExpression="${subject}" 
+		trackNameExpression="Video 1"	
+		targetAssetExpression="${subject.mainVideoAsset.currentVersion}" 
+		startOffsetExpression="0.00"
+		nextStep="Reindex"
+		/>
+	
+	
+	
+	<!-- Set metadata because a mp4 proxy cant be created -->
+	<saveDataObjectStep name="set unable to create proxy"
+		executionLabelExpression="Flagging 'unableToGenerateMp4Proxy' on asset because an MP4 proxy cannot be made. This could be due to: a proxy Asset Content does not exist, a proxy file does not exist, or the proxy failed to be created by the transcoder"
+		dataObjectExpression="${subject.metadata}"
+		nextStep="Reindex"
+		>
+		<property name="unableToGenerateMp4Proxy">true</property>
+	</saveDataObjectStep>
+	
+	
+	
+	<!-- Save elastic search -->
+	<raiseWorkflowEventStep name="Reindex"
+		eventTypeExpression="ensureIndexed"
+		executionLabelExpression="Ensure Asset Indexed " 
+		>
+		<transition condition="${(currentProxyContent == null OR currentProxyFile == null OR !currentProxyFile.exists()) AND subject.metadata.unableToGenerateMp4Proxy == true}">
+			<targetStepName>no proxy file</targetStepName>
+		</transition>
+		<transition condition="${!transcodedProxyFile.exists() AND !#extension(currentProxyContent?.file.name).toLowerCase().equals('mp4')}">
+			<targetStepName>proxy creation failed</targetStepName>
+		</transition>
+		<transition condition="${transcodedProxyFile.exists()}">
+			<targetStepName>delete transcode artifact</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<property name="indexTargetRef">${subject}</property>	
+	</raiseWorkflowEventStep>
+	
+	
+	
+	<!-- Delete transcode artifact -->
+	<deleteFileStep name="delete transcode artifact" 
+		executionLabelExpression="Deleting the transcoded proxy artifact '${transcodedProxyFile.absolutePath}'"
+		sourceFilesExpression="${transcodedProxyFile}" 
+		nextStep="end"
+	/>
+	
+	
+	
+	
+	
+	
+	<!-- ................................................... End Steps .................................................... -->
+	<!-- no proxy file found and the restore option is false -->
+	<failWorkflowStep name="no proxy file"
+		reasonExpression="proxy file (${currentProxyFile != null? currentProxyFile.absolutePath : 'null'}) does not exist on the file system"
+		executionLabelExpression="proxy file (${currentProxyFile != null? currentProxyFile.absolutePath : 'null'}) does not exist on the file system"
+	/>
+	
+	
+	
+	<!-- no transcoded file was returned from the transcoder -->
+	<failWorkflowStep name="proxy creation failed"
+		reasonExpression="Transcode result was null. Proxy creation failed"
+		executionLabelExpression="Transcode result was null. Proxy creation failed"
+	/>
+	
+	
+	
+	<noopStep name="workflow already executing"
+		executionLabelExpression="Workflow is already executing. Do nothing this time."
+		nextStep="end"
+	/>
+	
+	
+	
+	<!-- success -->
+	<noopStep name="end"/>
+	
+	
+	
+	
+	
+	<!-- ............................................... Context Data Defs ................................................ -->
+	<!-- .............. Safety Check Variables .............. -->
+	<!-- used to make sure this workflow is not currently executing already. We only want 1 to run at a time. -->
+	<contextDataDef name="currentExecutions"    dataType="Data Object"      multiple="true" />
+	
+	<!-- .............. Update Proxy Variables ............... -->
+	<!-- save current proxies as edit proxies? -->
+	<contextDataDef name="useProxyAsEditProxy" 		dataType="Boolean"			defaultDataExpression="${#sysconfig('proxyTriage.proxy.useAsEditProxy')}"/>
+	<!-- proxt transcode template to use -->
+	<contextDataDef name="proxyTemplate" 			dataType="String"			defaultDataExpression="${#sysconfig('proxyTriage.proxy.template')}"/>
+	<!-- transcoded file to be the new proxy -->
+	<contextDataDef name="transcodedProxyFile" 		dataType="File"/>
+	<contextDataDef name="jobId" 					dataType="String"/>
+	
+	<!-- ................. Asset Variables ................... -->
+	<!-- this is the subject, used for passing to subflows -->
+	<contextDataDef name="timeline" 				dataType="Data Object"		defaultDataExpression="${subject}"/>
+	<!-- proxy AssetContent of the Timeline -->
+	<contextDataDef name="currentProxyContent" 		dataType="Data Object"		defaultDataExpression="${subject?.mainVideoAsset?.proxy != null? subject.mainVideoAsset.proxy : null}"/>
+	<!-- associated file of the proxy AssetContent -->
+	<contextDataDef name="currentProxyFile" 		dataType="File"				defaultDataExpression="${currentProxyContent?.file}"/>
+
+
+</workflow>

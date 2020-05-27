@@ -1,0 +1,38 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="parentSearchFile"
+        name="Parent Search File"
+        executionLabelExpression="Search a file"
+        description=""
+        subjectDOClassName=""
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion="4.2"
+        resultDataDef=""
+>
+    <initialStepName>get list</initialStepName>
+
+
+    <executeSubflowStep name="get list"
+                        targetWorkflowId="SearchFiles"
+                        resultDataDef="resultFilePathList"
+                        nextStep="end"
+    >
+
+        <subflowContextDataMapping parentDataDef="fileName"		        subflowDataDef="fileName"/>
+        <subflowContextDataMapping parentDataDef="rootDirectoryPath"    subflowDataDef="rootDirectoryPath"/>
+        <subflowContextDataMapping parentDataDef="recursiveSearch"    subflowDataDef="recursiveSearch"/>
+    </executeSubflowStep>
+
+    <noopStep name="end"/>
+
+
+    <contextDataDef name="rootDirectoryPath" dataType="String" userInput="true" required="true" label="Select Root Directory" />
+    <contextDataDef name="fileName" dataType="String" label="Enter filename to search"  required="true" userInput="true" />
+    <contextDataDef name="recursiveSearch"      dataType="Boolean" userInput="true" />
+
+    <contextDataDef name="resultFilePathList"   dataType="String"   multiple="true" />
+
+</workflow>

@@ -1,0 +1,359 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2014 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+		  xmlns="http://levelsbeyond.com/schema/workflow"
+		  xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+		  
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/studio1_7_35/studio.xsd"
+          id="_ingestAssetToCollectionWithSidecar"
+          name="Ingest Asset to Collection with sidecar metadata file"
+          executionLabelExpression="Ingest ${fileToIngest.absolutePath}"
+          subjectDOClassName=""
+          showInUserInterface="true"
+          sdkVersion="4.2"
+		  resultDataDef="asset">
+
+	<initialStepName>ignore metadata files</initialStepName>
+	
+	<!-- 0. ignore metadata file -->
+	<noopStep name="ignore metadata files" pctComplete="10">
+		<transition condition="${#extension(fileToIngest).equals('json')}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>determine file move</targetStepName>
+		</transition>
+	</noopStep>
+
+	<!-- 1. copy file into collection path (if defined) -->
+	<noopStep name="determine file move" pctComplete="11">
+		<transition condition="${collection.repositoryRoot == null or collection.repositoryPath == null}">
+			<targetStepName>set metadataFile</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>copy asset</targetStepName>
+		</transition>
+	</noopStep>
+
+	<copyFileStep name="copy asset"
+	              executionLabelExpression="Copy file into collection directory '${collection.repositoryRoot.rootVirtualPath + collection.repositoryPath}'"
+	              sourceFileExpression="${fileToIngest}"
+	              targetDirectoryExpression="${collection.repositoryRoot.rootVirtualPath + collection.repositoryPath}"
+	              resultDataDef="fileToIngest"
+				  pctComplete="25">
+		<transition condition="true">
+			<targetStepName>set metadataFile</targetStepName>
+		</transition>
+	</copyFileStep>
+	
+	<!-- 2. Set json sidecar file location and set jsonMetadata-->
+	<setContextData
+		name="set metadataFile"
+		targetDataDef="metadataFile" 
+		valueExpression="${#filepath(fileToIngest)}${#baseFilename(fileToIngest)}.json" 
+		pctComplete="26">
+		
+		<transition condition="${metadataFile?.exists()}">
+			<targetStepName>set path string</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>fail</targetStepName>
+		</transition>
+	</setContextData>
+	
+	<setContextData
+		name="set path string"
+		targetDataDef="metadataFilePath" 
+		valueExpression="${metadataFile.absolutePath}" 
+		pctComplete="27">
+		
+		<transition condition="true">
+			<targetStepName>parse sidecar metadata</targetStepName>
+		</transition>
+	</setContextData>
+	
+	<groovyStep
+		name="parse sidecar metadata"
+		resultDataDef="jsonMetadata" 
+		pctComplete="30"
+		>
+	
+		<transition condition="${true}">
+			<targetStepName>ingest asset</targetStepName>
+		</transition>
+		
+		<script>
+<![CDATA[
+import groovy.*;
+import groovy.json.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+Logger log = LoggerFactory.getLogger("com.levelsbeyond.plugin.workflow");
+
+String fileContents = new File(metadataFilePath).text;
+println(fileContents);
+
+def jsonMeta = new JsonSlurper().parseText(fileContents);
+jsonMeta.metadata.each{ index, value ->
+	log.debug(value.getClass().toString());
+	if(value.getClass() == ArrayList){
+		String toString = "|";
+		for (String s : value) { toString += s + "|"; }
+		log.debug(toString);
+		value = toString;
+	}
+	if(value.getClass() != String){
+		value = value.toString()
+	}
+	log.debug("${index}: ${value}");
+	jsonMetadata.put(index, value);
+}
+
+jsonMeta.categories.each{
+    jsonMetadata.put('category', it.toString());
+}
+
+return jsonMetadata; 
+]]>
+		</script>
+	</groovyStep>
+	
+
+	<!-- 3. ingest asset -->
+	<executeSubflowStep name="ingest asset"
+	                    targetWorkflowId="_anyAssetIngest"
+	                    resultDataDef="asset"
+						pctComplete="65">
+
+		<transition condition="true">
+			<targetStepName>get master asset</targetStepName>
+		</transition>
+
+		<subflowContextDataMapping subflowDataDef="fileToIngest" parentDataDef="fileToIngest"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="skipMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+	</executeSubflowStep>
+
+	<setContextData name="get master asset"
+	                targetDataDef="asset"
+	                valueExpression="${asset.masterAsset}"
+					pctComplete="66">
+		<transition condition="=true">
+			<targetStepName>determine asset type</targetStepName>
+		</transition>
+	</setContextData>
+
+	<!-- 4. add ingested asset to collection -->
+	<noopStep name="determine asset type" pctComplete="70">
+		<transition condition="${#mediaType(asset.sourceFile) == 'VIDEO'}">
+			<targetStepName>get timeline from asset</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>add asset to collection</targetStepName>
+		</transition>
+	</noopStep>
+
+	<setContextData name="get timeline from asset"
+	                targetDataDef="asset"
+	                valueExpression="${asset.timelineAssets.![timeline][0]}"
+					pctComplete="70">
+		<transition condition="=true">
+			<targetStepName>add timeline to collection</targetStepName>
+		</transition>
+	</setContextData>
+
+	<executeSubflowStep name="add asset to collection"
+	                    executionLabelExpression="Adding '${asset.name}' to collection"
+	                    targetWorkflowId="_addAssetToCollection"
+	                    subjectChangePath="${asset}"
+						pctComplete="75">
+		<transition condition="${jsonMetadata.category != null}">
+			<targetStepName>look up category</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+		<subflowContextDataMapping parentDataDef="collection" subflowDataDef="collection"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="add timeline to collection"
+	                    executionLabelExpression="Adding '${asset.name}' to collection"
+	                    targetWorkflowId="_addTimelineToCollection"
+	                    subjectChangePath="${asset}"
+						pctComplete="80">
+		<transition condition="${jsonMetadata.category != null}">
+			<targetStepName>look up category</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+		<subflowContextDataMapping parentDataDef="collection" subflowDataDef="collection"/>
+	</executeSubflowStep>
+	
+	<queryStep name="look up category" 
+		targetDataObjectClass="AssetCategory"
+		pctComplete="40"		
+		resultDataDef="category">
+		
+		<transition condition="true">
+			<targetStepName>add category</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+				<criteria>
+	            <and>
+	                <condition property="id" op="eq"><test value="${jsonMetadata.category}"/></condition>
+	            </and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+	
+	<nimbus:changeMetaCategoryStep
+		name="add category"
+		targetObjectExpression="${asset}">
+		
+		<transition condition="true">
+			<targetStepName>parse clips</targetStepName>
+		</transition>
+		<nimbus:addCategory>${category}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+	
+	<groovyStep
+		name="parse clips"
+		resultDataDef="clipsArray" 
+		pctComplete="30"
+		>
+		
+		<transition condition="${true}">
+			<targetStepName>create clips</targetStepName>
+		</transition>
+		
+		<script>
+			<![CDATA[
+import groovy.*;
+import groovy.json.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+Logger log = LoggerFactory.getLogger("com.levelsbeyond.plugin.workflow");
+
+String fileContents = new File(metadataFilePath).text;
+println(fileContents);
+
+def jsonMeta = new JsonSlurper().parseText(fileContents);
+
+println(jsonMeta.get('clips').toString());
+
+return jsonMeta.get('clips'); 
+]]>
+		</script>
+	</groovyStep>
+	
+	<executeSubflowStep 
+		targetWorkflowId="_createClipWithSidecarMetadata" 
+		name="create clips"
+		subjectChangePath="${clipsArray}"
+		subflowTargetDataDef="jsonMetadata"
+		>
+		
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+		<subflowContextDataMapping parentDataDef="asset" subflowDataDef="timeline"/>
+		<subflowContextDataMapping parentDataDef="collection" subflowDataDef="collection"/>
+		<subflowContextDataMapping parentDataDef="category" subflowDataDef="category"/>
+	</executeSubflowStep>
+	
+	 
+	<!-- cleanup temp files-->
+	<noopStep name="cleanup" pctComplete="85">
+		
+		<transition condition="${collection.repositoryRoot != null and collection.repositoryPath != null}">
+			<targetStepName>remove json file</targetStepName>
+		</transition>
+		<transition condition="${fileToIngest.exists()}">
+			<targetStepName>remove temp ingest file</targetStepName>
+		</transition>
+		<transition condition="${metadataFile.exists()}">
+			<targetStepName>remove json file</targetStepName>
+		</transition>		
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	<deleteFileStep 
+		name="remove temp ingest file"
+		sourceFilesExpression="${fileToIngest}"
+		pctComplete="90">
+		
+		<transition condition="${metadataFile.exists()}">
+			<targetStepName>remove json file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</deleteFileStep>
+
+	<deleteFileStep
+		name="remove json file"
+		sourceFilesExpression="${metadataFile}"
+		pctComplete="95">
+		
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>		
+	</deleteFileStep>
+
+	<!-- 5. fin -->
+	<noopStep name="end" pctComplete="100"/>
+	
+	<!-- Fail when no metadata file found -->
+	<failWorkflowStep reasonExpression="No Metadata File Found" name="fail"/>
+
+	<!-- context data - input (required) -->
+	<contextDataDef name="fileToIngest" dataType="File" label="File" required="true" userInput="true"/>
+
+	<!-- context data - input (optional) -->
+	<contextDataDef name="exiftoolPath" dataType="String" defaultDataExpression="${ #sysconfig('exiftool.path') }"/>
+	<contextDataDef name="jsonMetadata" dataType="JSON" multiple="false" defaultDataExpression="{}"/>
+	<contextDataDef name="metadata" dataType="NameValuePair" multiple="true"/>
+	<contextDataDef name="skipMezzanineFlag" dataType="Boolean" userInput="true"/>
+	<contextDataDef name="clipsArray" dataType="JSON" multiple="true"/>
+
+	<!-- context data - processing -->
+	<contextDataDef name="asset" dataType="Data Object"/>
+	<contextDataDef name="collection" dataType="Data Object" userInput="true">
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCollection">
+				<searchPath>name</searchPath>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+	<contextDataDef name="metadataFile" dataType="File"/>
+	<contextDataDef name="metadataFilePath" dataType="String"/>
+	<contextDataDef name="category" dataType="Data Object" userInput="true">
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCategory">
+				<searchPath>name</searchPath>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+</workflow>

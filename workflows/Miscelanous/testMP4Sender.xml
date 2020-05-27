@@ -1,0 +1,163 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="testMP4Sender"
+        name="Video Convert and FTP Send"
+        executionLabelExpression="Convert and Send by ftp ${subject.name}"
+        description=""
+        subjectDOClassName="VideoAssetMaster"
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion=""
+        resultDataDef=""
+>
+
+    <initialStepName>convertVideo</initialStepName>
+
+    <!--Convert  video to MP4-->
+    <convertVideoStep name="convertVideo"
+                      sourceFileExpression="${sourceFile.mezzanine.file}"
+                      resultDataDef="convertedFile"
+                      mediaConversionTemplateExpression="Create_MP4"
+                      nextStep="Json_Create_and_Send_FTP"
+    >
+    </convertVideoStep>
+
+    <!--Create JSON File and send FTP-->
+    <groovyStep name="Json_Create_and_Send_FTP"
+                resultDataDef="ftpResult"
+                nextStep="deleteMp4" >
+
+        <script>
+            <![CDATA[
+
+            import org.apache.commons.io.IOUtils
+            import org.apache.commons.net.ftp.FTPClient
+            import org.apache.commons.net.ftp.FTPReply
+            import java.io.FileInputStream.*
+            import java.io.InputStream.*
+            import groovy.json.*
+            import java.util.*
+
+            FTPClient ftpClient = new FTPClient()
+            String result = 'Error'
+            FileInputStream mp4FileInputStream = null
+            InputStream jsonInputSteam = null
+            def destMp4Filename = uniqueFilename + ".mp4"
+            def destJSONFilename = uniqueFilename + ".json"
+            def jsonStr = ""
+            Map<String,Object> map = new HashMap<>()
+
+
+            try
+            {
+                //create JSON data
+                map.put( "name", sourceFile.name )
+                map.put( "duration", sourceFile.durationhhmmssff )
+                map.put("deliveryFilename",destMp4Filename)
+
+                jsonStr = JsonOutput.toJson(map)
+
+
+
+                //Connection to FTP
+                ftpClient.connect(ftpServer)
+
+                //Verify correct access
+                if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode()))
+                {
+                    //Login user and password
+                    if ( ftpClient.login(ftpUser, ftpPassword))
+                    {
+                        //set Local Passive Mode
+                        ftpClient.enterLocalPassiveMode()
+
+                        //Change working directory where copy the file
+                        ftpClient.changeWorkingDirectory(ftpPath)
+
+                        //Set file transfer mode: binary for media files
+                        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE)
+
+                        if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode())) {
+
+                            //Upload File
+                            try {
+
+                                mp4FileInputStream = new FileInputStream(convertedFile.absolutePath)
+
+
+                                //send noop to prevent server timeout
+                                ftpClient.sendNoOp()
+
+                                //send Mp4 to FTP
+                                if (ftpClient.storeFile(destMp4Filename, mp4FileInputStream))
+                                {
+                                    //send Json to FTP
+                                    jsonInputSteam = IOUtils.toInputStream(jsonStr)
+
+                                    if (ftpClient.storeFile(destJSONFilename, jsonInputSteam)) {
+
+                                        result = 'Success'
+                                    }
+                                }
+                            }
+                            catch (Exception e){}
+                        }
+                    }
+                }
+            }
+            catch(IOException e){}
+
+            finally
+            {
+                if(ftpClient.isConnected())
+                {
+                    ftpClient.logout()
+                    ftpClient.disconnect()
+                }
+            }
+
+            return result
+
+            ]]>
+        </script>
+    </groovyStep>
+
+
+    <!-- Delete Local MP4 file -->
+    <deleteFileStep name="deleteMp4"
+                    sourceFilesExpression="${convertedFile.absolutePath}"
+                    nextStep="sendEmail"/>
+    
+
+    <!-- Email who run the workflow -->
+    <emailStep name="sendEmail"
+               emailAddressesExpression="${userEmailAddress}"
+               subjectExpression="${ftpResult}: converted and sent by ftp of ${sourceFile.name}"
+               nextStep="end" >
+               <body>
+                    <![CDATA[    HELLO!         ]]>
+               </body>
+    </emailStep>
+
+
+
+    <noopStep name="end" />
+
+
+
+    <!-- Context Data Defs -->
+    <contextDataDef name="uniqueFilename" dataType="String" defaultDataExpression="${#uuid().toString()}" />
+    <contextDataDef name="sourceFile" dataType="Data Object" defaultDataExpression="${subject}" />
+    <contextDataDef name="convertedFile" dataType="File" />
+    <contextDataDef name="ftpServer"    dataType="String" defaultDataExpression="ftp.levelsbeyond.com" />
+    <contextDataDef name="ftpUser"      dataType="String" defaultDataExpression="partner" />
+    <contextDataDef name="ftpPassword"  dataType="String" defaultDataExpression="-T#T@_k0AxvT" />
+    <contextDataDef name="ftpPath" dataType="String" defaultDataExpression="/test" />
+    <contextDataDef name="ftpResult" dataType="String" />
+    <contextDataDef name="userEmailAddress" dataType="String" defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+
+</workflow>

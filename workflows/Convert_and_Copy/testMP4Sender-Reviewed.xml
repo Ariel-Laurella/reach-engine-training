@@ -1,0 +1,250 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="testMP4Sender"
+        name="Video Convert and FTP Send"
+        executionLabelExpression="Convert and Send by ftp ${subject.name}"
+        description=""
+        subjectDOClassName="VideoAssetMaster"
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion=""
+        resultDataDef=""
+>
+
+    <initialStepName>convertVideo</initialStepName>
+
+    <!--Convert  video to MP4-->
+    <convertVideoStep name="convertVideo"
+                      sourceFileExpression="${sourceSubject.mezzanine.file}"
+                      resultDataDef="convertedFile"
+                      mediaConversionTemplateExpression="Create_MP4"
+                      pctComplete="50"
+
+    >
+        <transition condition="${convertedFile.exists()}">
+            <targetStepName>converted_File_Extension</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>message_Vantage_Job_Fail</targetStepName>
+        </transition>
+    </convertVideoStep>
+
+    <createFailureNotificationStep name="message_Vantage_Job_Fail"
+                                   nextStep="end"
+                                   notificationTypeExpression="FAILURE"
+                                   notificationBodyExpression="Vantage job failed" />
+
+    <setContextData name="converted_File_Extension"
+                    valueExpression="${#extension(convertedFile)}"
+                    targetDataDef="convertedFileExtension"
+                    nextStep="Json_Create_and_Send_FTP" />
+
+
+<!-- Very goood. Let's also look into the attribute "pctCompleteExpression" to update the UI with percent complete after each step is done.
+For example, if we consider that the entire workflow is 40% complete after this conversion
+step, then we would put that in "pctCompleteExpression" attribute.
+-->
+
+    <!--Create JSON File and send FTP-->
+    <groovyStep name="Json_Create_and_Send_FTP"
+                resultDataDef="ftpResult"
+                pctComplete="80"
+         >
+        <transition condition="${ftpResult == 'Success'}">
+            <targetStepName>deleteMp4</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>message_FTP_Job_Fail</targetStepName>
+        </transition>
+        <script>
+            <![CDATA[
+
+            import org.apache.commons.io.IOUtils
+            import org.apache.commons.net.ftp.FTPClient
+            import org.apache.commons.net.ftp.FTPReply
+            import java.io.FileInputStream.*
+            import java.io.InputStream.*
+            import groovy.json.*
+            import java.util.*
+
+            FTPClient ftpClient = new FTPClient()
+            String result = 'Error'
+            FileInputStream mp4FileInputStream = null
+            InputStream jsonInputSteam = null
+            //def destMp4Filename = uniqueFilename + ".mp4"
+            def destMp4Filename = uniqueFilename + "." + convertedFileExtension
+
+            /* This approach to append the ".mp4" extension works. However, to make
+            this more solid, I'd recommend looking into grabbing the exension from the
+            transcoded file.
+
+            In this case we happen to know that the transcoder is giving us back a MP4
+            with a known file extension. But what if it was a M4V?
+
+            Levels has a function to use within spring called #extension, in the function reference guide.
+
+            Another approach to grabbing extension from the transcoded file in groovy
+            could be substring method.
+
+            */
+
+
+            def destJSONFilename = uniqueFilename + ".json"
+
+            //Appending static file extension here is fine since we know it will always be JSON.
+
+            def jsonStr = ""
+            Map<String,Object> map = new HashMap<>()
+
+            // Good work, shorthand in groovy for this would be "Map map = [:]"
+
+
+            try
+            {
+                //create JSON data
+                map.put( "name", sourceSubject.name )
+                map.put( "duration", sourceSubject.durationhhmmssff )
+                map.put("deliveryFilename",destMp4Filename)
+
+                jsonStr = JsonOutput.toJson(map)
+
+                // Good work finding the JsonOutput library!
+
+
+                //Connection to FTP
+                ftpClient.connect(ftpServer)
+
+                //Verify correct access
+                if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode()))
+                {
+                    //Login user and password
+                    if ( ftpClient.login(ftpUser, ftpPassword))
+                    {
+                        //set Local Passive Mode
+                        ftpClient.enterLocalPassiveMode()
+
+                        //Change working directory where copy the file
+                        ftpClient.changeWorkingDirectory(ftpPath)
+
+                        //Set file transfer mode: binary for media files
+                        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE)
+
+                        if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode())) {
+
+                            //Upload File
+                            try {
+
+                                mp4FileInputStream = new FileInputStream(convertedFile.absolutePath)
+
+
+                                //send noop to prevent server timeout
+                                ftpClient.sendNoOp()
+
+                                //send Mp4 to FTP
+                                if (ftpClient.storeFile(destMp4Filename, mp4FileInputStream))
+                                {
+                                    //send Json to FTP
+                                    jsonInputSteam = IOUtils.toInputStream(jsonStr)
+
+                                    // Excellent job sending the manifest as a stream without writing the data down to a file first.
+
+
+                                    if (ftpClient.storeFile(destJSONFilename, jsonInputSteam)) {
+
+                                        result = 'Success'
+                                    }
+                                }
+                            }
+                            catch (Exception e){}
+                        }
+                    }
+                }
+            }
+            catch(IOException e){}
+
+            finally
+            {
+                if(ftpClient.isConnected())
+                {
+                    ftpClient.logout()
+                    ftpClient.disconnect()
+                }
+            }
+
+            return result
+
+            ]]>
+        </script>
+    </groovyStep>
+
+    <createFailureNotificationStep name="message_FTP_Job_Fail"
+                                   nextStep="deleteMp4"
+                                   notificationTypeExpression="FAILURE"
+                                   notificationBodyExpression="FTP job failed" />
+
+
+    <!-- Delete Local MP4 file -->
+    <deleteFileStep name="deleteMp4"
+                    sourceFilesExpression="${convertedFile.absolutePath}"
+                    pctComplete="90"
+                    nextStep="sendEmail"/>
+    
+
+    <!-- Email who run the workflow -->
+    <emailStep name="sendEmail"
+               emailAddressesExpression="${userEmailAddress}"
+               subjectExpression="[REACH] Convert and delivery job:  ${ftpResult}"
+               pctComplete="99"
+    >
+    <transition condition="${ftpResult == 'Success' }">
+        <targetStepName>end</targetStepName>
+    </transition>
+        <transition condition="${true}">
+            <targetStepName>workflow_fail</targetStepName>
+        </transition>
+
+               <body>
+                    <![CDATA[
+Hello user. The Convert and delivery job ${ftpResult == 'Success' ? 'was successful':'was not successful'}.
+
+
+
+                    ]]>
+               </body>
+    </emailStep>
+
+    <failWorkflowStep name="workflow_fail"
+                      reasonExpression="genericFailure"
+                      executionLabelExpression="Workflow Fail. Please contact Administrator" />
+
+    <noopStep name="end"  pctComplete="100"/>
+
+
+
+    <!-- Context Data Defs -->
+    <contextDataDef name="uniqueFilename" dataType="String" defaultDataExpression="${#uuid().toString()}" />
+    <contextDataDef name="sourceSubject" dataType="Data Object" defaultDataExpression="${subject}" />
+    <contextDataDef name="convertedFileExtension" dataType="String"/>
+
+    <!-- The above "sourceFile" does work as intended, however, for best practices consider 
+        changing "sourceFile" to "video" or "userSelection". "sourceFile" indicates that it
+        is a file, which this is not. It is a data object.
+        If your expression was ${subject.mezzanine.file} then it would be appropriate to
+        call it "sourceFile".
+    -->
+    <contextDataDef name="convertedFile" dataType="File" />
+    <contextDataDef name="ftpServer"    dataType="String" defaultDataExpression="ftp.levelsbeyond.com"/>
+    <contextDataDef name="ftpUser"      dataType="String" defaultDataExpression="partne" />
+    <contextDataDef name="ftpPassword"  dataType="String" defaultDataExpression="-T#T@_k0AxvT" hidden="true"/>
+
+    <!-- Good work here, to help obscure passwords in the UI, consider adding the "hidden" attribute here. Can be found in the XSD.-->
+
+    <contextDataDef name="ftpPath" dataType="String" defaultDataExpression="/test" />
+    <contextDataDef name="ftpResult" dataType="String" />
+    <contextDataDef name="userEmailAddress" dataType="String" defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+
+</workflow>

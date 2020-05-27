@@ -1,0 +1,531 @@
+
+<!-- This workflow is intended to send a video asset to Brightcove. -->
+
+<!--
+ The parent workflow will supply 1 video & 1 caption document as "File" data type. All files supplied will be relevant
+ to a single uploaded content with an unique name (the same unique name for video and caption file), which are included
+ in a JSON with a poster url.
+
+ Videos supplied will ALWAYS be MP4 extension
+ Captions supplied will ALWAYS be VTT extension
+
+ There will NEVER be a instance where a video is sent ALONE. It will always have a poster image and captions.
+ For now, there will always be just 1 caption document.
+-->
+
+
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+          id="SendVideoToBrightcove"
+          name="Send Video to Brightcove"
+          executionLabelExpression="Send Asset to Brightcove"
+          subjectDOClassName="VideoAssetMaster"
+          showInUserInterface="false"
+          resultDataDef="deliveryStatus"
+          deadlineExpression=""
+          sdkVersion="5.21"
+>
+
+    <initialStepName>get authentication token</initialStepName>
+
+
+    <!-- Get Authorization Token from Brightcove .......................................................................-->
+
+    <submitHttpStep name="get authentication token"
+                    urlExpression="https://oauth.brightcove.com/v4/access_token"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="authResponsePayload"
+                    executionLabelExpression="Returning token from Brightcove"
+                    nextStep="set time of auth expiration">
+        <requestPayloadItem name="body">${authPayload}</requestPayloadItem>
+        <requestHeader name="Content-Type">application/x-www-form-urlencoded</requestHeader>
+        <requestHeader name="Authorization">${brightcoveEncodedAuth}</requestHeader>
+    </submitHttpStep>
+
+    <setContextData name="set time of auth expiration"
+                    targetDataDef="timeOfAuthExpiration"
+                    valueExpression="${#addSeconds(#newDate(),authResponsePayload.get('expires_in').asInt()-20)}"
+                    executionLabelExpression="Setting time for token expiration at ${timeOfAuthExpiration.toString()}">
+        <transition condition="${reAuthenticateNextInstance == 'create video'}">
+            <targetStepName>create video</targetStepName>
+        </transition>
+        <transition condition="${reAuthenticateNextInstance == 'get upload url'}">
+            <targetStepName>get upload url</targetStepName>
+        </transition>
+        <transition condition="${reAuthenticateNextInstance == 'ingest video'}">
+            <targetStepName>ingest video</targetStepName>
+        </transition>
+        <transition condition="${reAuthenticateNextInstance == 'check for completion'}">
+            <targetStepName>check for completion</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>end</targetStepName>
+        </transition>
+    </setContextData>
+
+
+
+
+
+<!-- Create video on Brightcove ....................................................................................-->
+
+    <submitHttpStep name="create video"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Creating video on Brightcove"
+                    nextStep="set video id">
+        <requestPayloadItem name="body">
+            <![CDATA[
+{
+"custom_fields": {
+"CrownContentID": "${houseCode}"
+},
+"name": "${uploadName}"
+}
+            ]]>
+        </requestPayloadItem>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+
+    <setContextData name="set video id"
+                    targetDataDef="brightcoveVideoId"
+                    valueExpression="${responsePayload.get('id').asText()}"
+                    devStep="true"
+                    nextStep="get upload url" />
+
+
+    <setContextData name="adjust data for second upload"
+                    nextStep="validate re authentication instance 1"
+    >
+        <set targetDataDef="reAuthenticateNextInstance" valueExpression="get upload url" />
+        <set targetDataDef="filePathUploaded"   valueExpression="${captionsPathToUpload}"/>
+        <set targetDataDef="fileExtension"      valueExpression="${#extension(captionsPathToUpload)}"/>
+    </setContextData>
+
+
+<!-- validate expiration of token : Instance 1 ......................................................................-->
+
+    <noopStep name="validate re authentication instance 1">
+        <transition condition="${#newDate() &lt; timeOfAuthExpiration}">
+            <targetStepName>get upload url</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>get authentication token</targetStepName>
+        </transition>
+    </noopStep>
+
+
+<!-- Get Upload URL for Amazon S3 ...................................................................................-->
+
+    <submitHttpStep name="get upload url"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos/${brightcoveVideoId}/upload-urls/${uniqueFilename}.${fileExtension}"
+                    requestMethodExpression="GET"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="amazonResponsePayload"
+                    executionLabelExpression="Getting upload url for Amazon S3">
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+        <transition condition="${fileCounter == 0}">
+            <targetStepName>set video url</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>set caption url</targetStepName>
+        </transition>
+
+    </submitHttpStep>
+
+    <setContextData name="set video url"
+                    targetDataDef="uploadedVideoUrl"
+                    valueExpression="${amazonResponsePayload.get('api_request_url').asText()}"
+                    nextStep="upload video"/>
+
+    <setContextData name="set caption url"
+                    targetDataDef="uploadedCaptionUrl"
+                    valueExpression="${amazonResponsePayload.get('api_request_url').asText()}"
+                    nextStep="upload video"/>
+
+
+<!-- Upload video to Amazon S3 ......................................................................................-->
+
+    <groovyStep name="upload video"
+                resultDataDef="amazonUploadResult"
+                nextStep="increment file counter"
+    >
+        <script>
+            <![CDATA[
+/*
+* This code uses Aws SDK 1.11. It Uploads a file to S3 Storage in multiple parts using bandwidth control
+* with Google guava throttle library.  Each chunk uploaded is controlled by guava
+* throttle in order to maintain the desired bandwidth set up by txRate variable.
+ */
+
+
+import com.amazonaws.SdkClientException
+import com.amazonaws.auth.AWSCredentials
+import com.amazonaws.auth.BasicSessionCredentials
+import com.amazonaws.regions.Regions
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.*
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.google.common.util.concurrent.RateLimiter
+import org.apache.http.protocol.HttpRequestExecutor
+import groovy.json.JsonSlurper
+
+
+/*
+* Uploading a file to S3 in parts
+*/
+
+
+/*
+
+def slurper = new JsonSlurper()
+Map uploadUrlPayload = slurper.parseText(amazonResponsePayload.toString())
+
+//This will capture the individual Upload URLs that we have completed in order to ingest later.
+
+if (uploadedFileUrls == null){
+    uploadedFileUrls = new ArrayList()
+}
+
+if(uploadedFileUrls != null){
+    uploadedFileUrls.add( new String(uploadUrlPayload.api_request_url))
+}
+*/
+
+
+
+//Maximum desired upload bandwidth in bytes per second
+int txRate = 50 * 1024 * 1024
+try {
+    if ((int) uploadRateMBps != null && (int) uploadRateMBps > 0) {  txRate = uploadRateMBps * 1024 * 1024}
+}
+catch(Exception e){}
+
+
+
+def uploadResultProcess = 'failure'
+File sourceFile = new File(filePathUploaded)
+RateLimiter limiter = RateLimiter.create(txRate)
+long maxChunkLength = 5 * 1024 * 1024                       // Set chunkLength to 5 MB maximum.
+long chunkLength = 0
+Date startTime = (new Date())
+long filePosition = 0
+int chunkNumber = 1
+
+// Create a list of ETag objects. You retrieve ETags for each object part uploaded,
+// then, after each individual part has been uploaded, pass the list of ETags to
+// the request to complete the upload.
+List<PartETag> partETags = new  ArrayList<PartETag>()
+
+try {
+
+    AWSCredentials credentials = new BasicSessionCredentials(amazonResponsePayload.get('access_key_id').asText(),amazonResponsePayload.get('secret_access_key').asText(),amazonResponsePayload.get('session_token').asText())
+
+    AmazonS3 s3Client = AmazonS3ClientBuilder
+            .standard()
+            .withCredentials(new AWSStaticCredentialsProvider(credentials))
+            .withRegion(Regions.US_EAST_1)
+            .build()
+
+
+// First create a multipart upload and get upload id
+
+    InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(amazonResponsePayload.get('bucket').asText(), amazonResponsePayload.get('object_key').asText())
+    InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest)
+
+
+// Upload all the different parts of the file in chunks
+
+    println("Local File Path..........: " + filePathUploaded)
+    println("Target Relative Path.....: " + amazonResponsePayload.get('object_key').asText())
+    println("Start Time...............: " + startTime.toString())
+
+
+    while ((filePosition < sourceFile.length())) {
+
+        //Adjust the chunkLength to upload as needed. The last part could be less than 5 MB.
+        chunkLength = (sourceFile.length() - filePosition > maxChunkLength) ? maxChunkLength : sourceFile.length() - filePosition
+
+        // Create the request to upload a part
+        UploadPartRequest uploadPartRequest = new UploadPartRequest()
+                .withBucketName(amazonResponsePayload.get('bucket').asText())
+                .withKey(amazonResponsePayload.get('object_key').asText())
+                .withUploadId(initResponse.getUploadId())
+                .withPartNumber(chunkNumber)
+                .withFileOffset(filePosition)
+                .withFile(sourceFile)
+                .withPartSize(chunkLength)
+
+        // Upload the part
+        UploadPartResult uploadResult = s3Client.uploadPart(uploadPartRequest)
+
+        // Create a list of ETag objects to merge at the end.
+        partETags.add(uploadResult.getPartETag())
+
+        //move file position to the next step
+        filePosition += chunkLength
+        chunkNumber += 1
+
+        //Bandwidth control
+        limiter.acquire((int) chunkLength)
+    }
+
+
+// Finally call completeMultipartUpload operation to tell S3 to merge all uploaded
+// parts and finish the multipart operation. Pass the list of ETags.
+    CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest(amazonResponsePayload.get('bucket').asText(), amazonResponsePayload.get('object_key').asText(), initResponse.getUploadId(), partETags)
+
+    s3Client.completeMultipartUpload(compRequest)
+    uploadResultProcess = "success"
+
+//Print results
+
+    Date stopTime = new Date()
+    long fileLengthKB = sourceFile.length() / 1024
+    long uploadDuration = (stopTime.getTime() - startTime.getTime()) / 1000
+    long averageBandwidth = fileLengthKB / uploadDuration
+    println("Stop Time................: " + stopTime.toString())
+    println("file lenght [KB].........: " + fileLengthKB.toString())
+    println("Upload duration [s]......: " + uploadDuration.toString())
+    println("Desired Bandwidth [KB/s].: " + (txRate / 1024).toString())
+    println("Average Bandwidth [KB/s].: " + averageBandwidth.toString())
+}
+catch (Exception e) {
+    println("Upload failed with error: " + e.getMessage())
+
+}
+finally {
+    return uploadResultProcess
+}
+        ]]>
+        </script>
+    </groovyStep>
+
+
+    <setContextData name="increment file counter"
+                    targetDataDef="fileCounter"
+                    valueExpression="${fileCounter + 1}"
+    >
+        <transition condition="${fileCounter &lt; numberFilesToSend}">
+            <targetStepName>adjust data for second upload</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>adjust authentication instance to 2</targetStepName>
+        </transition>
+    </setContextData>
+
+<!-- this is the end of the upload loop -->
+
+    <setContextData name="adjust authentication instance to 2"
+                    targetDataDef="reAuthenticateNextInstance"
+                    valueExpression="ingest video"
+                    nextStep="validate re authentication instance 2" />
+
+<!-- validate expiration of token : Instance 2 ......................................................................-->
+
+    <noopStep name="validate re authentication instance 2">
+        <transition condition="${#newDate() &lt; timeOfAuthExpiration}">
+            <targetStepName>ingest video</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>get authentication token</targetStepName>
+        </transition>
+    </noopStep>
+
+
+
+
+<!-- Ingest video on Brightcove ....................................................................................-->
+
+    <submitHttpStep name="ingest video"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos/${brightcoveVideoId}/ingest-requests"
+                    requestMethodExpression="POST"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Ingesting video on Brightcove"
+                    nextStep="set for checking">
+        <requestPayloadItem name="body">
+            <![CDATA[
+{
+  "master": {
+    "url": "${uploadedVideoUrl}"
+  },
+  "poster": {
+    "url": "${posterData.get('posterUrl').asText()}",
+    "width": ${posterData.get('width').asText()},
+    "height": ${posterData.get('height').asText()}
+  },
+  "text_tracks": [
+      {
+        "url": "${uploadedCaptionUrl}",
+        "srclang": "en",
+        "kind": "captions",
+        "label": "EN",
+        "default": true
+      }
+  ],
+  "capture-images": false
+}
+            ]]>
+        </requestPayloadItem>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+
+    <setContextData name="set for checking"
+                    nextStep="adjust authentication instance to 3">
+
+        <set targetDataDef="brightcoveJobId" valueExpression="${responsePayload.get('id').asText()}" />
+        <set targetDataDef="timeOutForJobChecking" valueExpression="${#addSeconds(#newDate(),videoDuration * 10)}" />
+    </setContextData>
+
+
+<!-- validate expiration of token : Instance 3 ......................................................................-->
+
+    <setContextData name="adjust authentication instance to 3"
+                    targetDataDef="reAuthenticateNextInstance"
+                    valueExpression="check for completion"
+                    nextStep="validate re authentication instance 3" />
+
+
+<!-- Start loop to check for completion. We do want to wait until completion before returning-->
+
+
+    <noopStep name="validate re authentication instance 3">
+        <transition condition="${#newDate() &lt; timeOfAuthExpiration}">
+            <targetStepName>check for completion</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>get authentication token</targetStepName>
+        </transition>
+    </noopStep>
+
+    <submitHttpStep name="check for completion"
+                    urlExpression="https://cms.api.brightcove.com/v1/accounts/${brightcoveAccountId}/videos/${brightcoveVideoId}/ingest_jobs/${brightcoveJobId}"
+                    requestMethodExpression="GET"
+                    responseCodeDataDef="responseCode"
+                    responsePayloadDataDef="responsePayload"
+                    executionLabelExpression="Checking for completion"
+    >
+        <transition condition="${responsePayload.get('state').asText() == 'processing'}">
+            <targetStepName>wait some time</targetStepName>
+        </transition>
+        <transition condition="${responsePayload.get('state').asText() == 'publishing'}">
+            <targetStepName>wait some time</targetStepName>
+        </transition>
+        <transition condition="${responsePayload.get('state').asText() == 'finished'}">
+            <targetStepName>set deliveryStatus success</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>delivery failure</targetStepName>
+        </transition>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Authorization">${authResponsePayload.get('token_type').asText()} ${authResponsePayload.get('access_token').asText()}</requestHeader>
+    </submitHttpStep>
+
+
+    <delayStep name="wait some time"
+               delaySecondsExpression="60">
+
+        <transition condition="${#newDate() &lt; timeOutForJobChecking}">
+            <targetStepName>validate re authentication instance 3</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>delivery failure</targetStepName>
+        </transition>
+    </delayStep>
+
+
+<!-- End loop to check for completion. It has a timeout equal 10 times of the duration of the video..................-->
+
+<!-- when finish as completed set a 'success' return for the parent-->
+    <setContextData name="set deliveryStatus success"
+                    targetDataDef="deliveryStatus"
+                    valueExpression="success"
+                    nextStep="end"/>
+
+
+<!--  End steps ....................................................................................................-->
+
+    <createSuccessNotificationStep name="end"
+                                   nextStep="end success step"
+                                   notificationTypeExpression="SUCCESS"
+                                   notificationBodyExpression="delivery process has finished" />
+
+    <createFailureNotificationStep name="delivery failure"
+                                   nextStep="end failure step"
+                                   notificationTypeExpression="FAILURE"
+                                   notificationBodyExpression="delivery process has failed" />
+
+    <failWorkflowStep name="end failure step"
+                      reasonExpression="delivery has failed" />
+
+
+    <noopStep name="end success step"
+              executionLabelExpression="end" />
+
+
+    <!--  Context Data Definitions .....................................................................................-->
+
+
+    <!-- ... Passed in from Parent ... -->
+    <contextDataDef name="uploadName"               dataType="String" defaultDataExpression="No name given"/>
+    <contextDataDef name="houseCode"                dataType="String"/>
+    <contextDataDef name="videoToUpload"            dataType="File"/>
+    <contextDataDef name="captionsPathToUpload"     dataType="String"/>
+    <contextDataDef name="uploadRateMBps"           dataType="Integer" />
+    <contextDataDef name="posterData"               dataType="JSON" />
+    <!--
+    {
+       "posterUrl": "https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg",
+       "height": 1080,
+       "width": 1920
+    }
+    -->
+
+    <contextDataDef name="filePathUploaded"         dataType="String"  defaultDataExpression="${videoToUpload.absolutePath.toString()}"/>
+    <contextDataDef name="fileExtension"            dataType="String"  defaultDataExpression="${#extension(videoToUpload)}"/>
+
+    <!-- This will be sent back to parent workflow -->
+    <contextDataDef name="deliveryStatus"           dataType="String"  defaultDataExpression="failure">
+        <description>This can either be 'success' or 'failure'</description>
+    </contextDataDef>
+
+    <contextDataDef name="fileCounter"              dataType="Integer" defaultDataExpression="0"/>
+    <contextDataDef name="numberFilesToSend"        dataType="Integer" defaultDataExpression="2"/>
+    <!--<contextDataDef name="uploadedFileUrls"         dataType="String"  multiple="true" defaultDataExpression="${['video','caption']}" />
+    -->
+    <contextDataDef name="uploadedVideoUrl"         dataType="String"  />
+    <contextDataDef name="uploadedCaptionUrl"       dataType="String"  />
+    <contextDataDef name="reAuthenticateNextInstance" dataType="String" defaultDataExpression="create video" />
+    <contextDataDef name="uniqueFilename"           dataType="String"  defaultDataExpression="${#uuid().toString()}" />
+    <contextDataDef name="videoDuration"            dataType="Integer"  defaultDataExpression="${subject.mezzanine.duration.intValue()}" />
+    <contextDataDef name="timeOfAuthExpiration"     dataType="Date/Time"  defaultDataExpression="${#newDate()}" />
+    <contextDataDef name="timeOutForJobChecking"    dataType="Date/Time"  defaultDataExpression="${#addSeconds(#newDate(),videoDuration * 10)}" />
+
+    <contextDataDef name="authPayload"              dataType="String" hidden="true" defaultDataExpression="grant_type=client_credentials&amp;client_id=${brightcoveClientId}&amp;client_secret=${brightcoveClientSecret}" />
+    <contextDataDef name="authResponsePayload"      dataType="JSON" />
+    <contextDataDef name="responseCode"             dataType="Integer" />
+    <contextDataDef name="responsePayload"          dataType="JSON" />
+    <contextDataDef name="amazonResponsePayload"    dataType="JSON" />
+    <contextDataDef name="amazonUploadResult"       dataType="String" />
+    <contextDataDef name="brightcoveVideoId"        dataType="String"   />
+    <contextDataDef name="brightcoveJobId"          dataType="String"   />
+    <contextDataDef name="brightcoveClientId"       dataType="String" hidden="true" defaultDataExpression="0ed173bb-9a77-45ec-8346-293474420f29" />
+    <contextDataDef name="brightcoveClientSecret"   dataType="String" hidden="true" defaultDataExpression="-K6ATWzUfNIwFRL1V09j9qTMq7vRT1nlaDCOdrh6QuEVD-Ji6vlhNZplbJRibIXEcUWDJ_dq7XCqlhjCQyWOFg" />
+    <contextDataDef name="brightcoveEncodedAuth"    dataType="String" hidden="true" defaultDataExpression="Bearer MGVkMTczYmItOWE3Ny00NWVjLTgzNDYtMjkzNDc0NDIwZjI5Oi1LNkFUV3pVZk5Jd0ZSTDFWMDlqOXFUTXE3dlJUMW5sYURDT2RyaDZRdUVWRC1KaTZ2bGhOWnBsYkpSaWJJWEVjVVdESl9kcTdYQ3FsaGpDUXlXT0Zn" />
+    <contextDataDef name="brightcoveAccountId"      dataType="String" hidden="true" defaultDataExpression="6058022072001"/>
+
+</workflow>

@@ -1,0 +1,708 @@
+<workflow
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xmlns="http://levelsbeyond.com/schema/workflow"
+		xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+		id="createLabsManifest"
+		name="Create Hallmark Labs Manifest"
+		executionLabelExpression="Create Hallmark Labs Manifest | ${subject.name}"
+		description=""
+		subjectDOClassName=""
+		deadlineExpression=""
+		subjectQualifierExpression=""
+		sdkVersion="2.3.16"
+		resultDataDef="jsonOutputFile"
+		showInUserInterface="false"
+>
+	<initialStepName>get metadata from metabase</initialStepName>
+
+	<runCommandStep name="get metadata from metabase"
+					executableNameExpression="${#sysconfig('reachEngine.environment').equals('DEV') ? 'metabaseConnectorV2Test' : 'metabaseConnectorV2'}"
+					stdoutDataDef="metabaseReturn"
+					executionLabelExpression="Getting Metadata for ${houseCode}"
+					nextStep="validate metabase return"
+	>
+		<arg>media/${houseCode}</arg>
+	</runCommandStep>
+
+	<!-- do some pre-flight check on returned data before making the labs JSON -->
+
+	<groovyStep name="validate metabase return"
+				resultDataDef="metabaseDates"
+				executionLabelExpression="Validating Data Returned from Metabase"
+	>
+		<transition condition="${metabaseDates.status != 'valid'}">
+			<targetStepName>missing required data in metabase</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>create labs json manifest</targetStepName>
+		</transition>
+		<script>
+			<![CDATA[
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+def validData = true
+def errorMessages = new ArrayList()
+Boolean weHaveRightsInfo = false
+
+Map dataValidatonResult = [:] // this is returned to reach
+
+def slurper = new JsonSlurper()
+def metabaseData = slurper.parseText(metabaseReturn.toString())
+
+if ( metabaseData.titleName == null || metabaseData.titleName == 'null' || metabaseData.titleName.isEmpty() ) {
+	validData = false
+	errorMessages.add('Missing Title Data')
+}
+
+if ( overrideTitleClass && ( reachTitleClass == null || reachTitleClass == '' ) ) {
+	validData = false
+	errorMessages.add('Missing Title Class Data in Reach Engine')
+}
+else if ( metabaseData.titleClass == null || metabaseData.titleClass == 'null' || metabaseData.titleClass.isEmpty() ) {
+	validData = false
+	errorMessages.add('Missing Title Class Data From Metabase')
+}
+
+if ( metabaseData.titleMediumSynopsis == null || metabaseData.titleMediumSynopsis == 'null' || metabaseData.titleMediumSynopsis.isEmpty() ) {
+	validData = false
+	errorMessages.add('Missing Synopsis Data')
+}
+if ( metabaseData.releaseYear == null || metabaseData.releaseYear < 0 ) {
+	//"releaseYear" from metabase should always return a double. This should not be negative.
+	validData = false
+	errorMessages.add('Missing Release Year Data')
+}
+
+if ( overrideTitleClass && reachTitleClass.toLowerCase() == 'mini-series' ){
+	if ( seriesCode == null || miniSeriesSequence == null || miniSeriesName == null ) {
+		validData = false
+		errorMessages.add('Missing Reach Data. Need Series Name, Series ID and Episode Sequence')
+	}
+}
+else if ( metabaseData.titleClass != null && metabaseData.titleClass.toLowerCase() == 'mini-series'){
+	if ( seriesCode == null || miniSeriesSequence == null || miniSeriesName == null ) {
+		validData = false
+		errorMessages.add('Missing Reach Data. Need Series Name, Series ID and Episode Sequence')
+	}
+}
+
+def licenseType = "standard"
+
+
+// Validate exploitation rights
+if (metabaseData.contentLegalExploitationRights == null || metabaseData.contentLegalExploitationRights.size() == 0) {
+	errorMessages.add("Missing Rights Information")
+}
+else {
+	println("We do have some contentLegalExploitationRights")
+	// this means we got 1 or more nonLinearExploitationRights items we need to look for a object with key of "channelCode"
+	// Labeling this loop below for reference later.
+	datechecker:
+	for ( def contentLegalExploitationRight in metabaseData.contentLegalExploitationRights ){
+		//println("We have some exploitation right within contentLegalExploitationRights")
+		if ( contentLegalExploitationRight.subscriberType == "SVOD" && contentLegalExploitationRight.exploitationRights != null && contentLegalExploitationRight.exploitationRights.size() > 0){
+			//println("We Have a exploitationright that has matching subscriber type code and has right windows")
+			for ( def exploitationRight  in contentLegalExploitationRight.exploitationRights ) {
+				if (exploitationRight.destination != "Hallmark Movies Now"){
+					continue
+				}
+				//println("Now we're inside of one of the exploitation rights. Now let's check if we have umbrella dates")
+				if ( exploitationRight.publicationWindowsUmbrella != null && exploitationRight.publicationWindowsUmbrella.size() > 0 ){
+					//println("We have umbrella dates. Let's check them!")
+					//println("Umbrella Start Date: ${exploitationRight.publicationWindowsUmbrella.startDate}")
+					//println("Umbrella End Date: ${exploitationRight.publicationWindowsUmbrella.endDate}")
+
+					dataValidatonResult.put("licenseWindowStart", exploitationRight.publicationWindowsUmbrella.startDate)
+					dataValidatonResult.put("licenseWindowEnd", exploitationRight.publicationWindowsUmbrella.endDate)
+					licenseType = "umbrella"
+					// Now we got the umbrella license windows. We need to drill down further to find publication dates.
+					// That is done below to get publication dates.
+				}
+				if ( exploitationRight.exploitationRightsWindows != null && exploitationRight.exploitationRightsWindows.size() != 0){
+					for ( def exploitationRightsWindow in exploitationRight.exploitationRightsWindows ){
+						//println("Now We're inside one of the publication window objects")
+						//println("License Start Date: ${exploitationRightsWindow.startDate}")
+						//println("License End Date: ${exploitationRightsWindow.endDate}")
+						if ( exploitationRightsWindow.publicationWindows != null && exploitationRightsWindow.publicationWindows.size() > 0){
+							//println("We have one or more publication windows")
+							for ( def publicationWindow in exploitationRightsWindow.publicationWindows ){
+								//println("Grabbed a publication window")
+								//println("Start: ${publicationWindow.startDate}")
+								//println("End: ${publicationWindow.endDate}")
+								if (exploitationRightsWindow.startDate != null && exploitationRightsWindow.endDate != null && publicationWindow.startDate != null && publicationWindow.endDate != null) {
+									if (licenseType == "standard") {
+										dataValidatonResult.put("licenseWindowStart", exploitationRightsWindow.startDate)
+										dataValidatonResult.put("licenseWindowEnd", exploitationRightsWindow.endDate)
+									}
+									dataValidatonResult.put("scheduleWindowStart", publicationWindow.startDate)
+									dataValidatonResult.put("scheduleWindowEnd", publicationWindow.endDate)
+									weHaveRightsInfo = true
+									break datechecker
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// After looping through -- do we really have the exploitation rights?
+if (!weHaveRightsInfo){
+	validData = weHaveRightsInfo
+	errorMessages.add( "Missing the correct rights or publication information for HMN" )
+}
+
+if ( validData ) {
+	dataValidatonResult.put("status", "valid")
+	dataValidatonResult.put("licenseType", licenseType)
+}
+else {
+	dataValidatonResult.put("status", "invalid")
+	dataValidatonResult.put("errors", [])
+	dataValidatonResult.errors.addAll(errorMessages)
+}
+
+//println("****Validated Metabase data for use with HM LABS****")
+
+//println(JsonOutput.prettyPrint(JsonOutput.toJson(dataValidatonResult)))
+
+//println("****Validated Metabase data for use with HM LABS****")
+
+return dataValidatonResult
+			
+			]]>
+		</script>
+
+	</groovyStep>
+
+
+	<groovyStep name="create labs json manifest"
+				resultDataDef="manifestCreationStatus"
+	>
+		<transition condition="${manifestCreationStatus[0] == 'failure'}">
+			<targetStepName>failed to create manifest</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<script>
+			<![CDATA[
+import groovy.json.JsonSlurper
+import groovy.json.JsonBuilder
+import com.routeto1.metadata.Metadata
+import com.levelsbeyond.service.inventory.MetadataService
+import com.routeto1.spring.ApplicationContextHolder
+import com.levelsbeyond.workflow.sdk.function.GetPicklistLabelFunction
+import com.levelsbeyond.service.exceptions.NotFoundException
+
+// construct the MetadataService properly through our data model
+def metadataService = ApplicationContextHolder.getApplicationContext().getBean(MetadataService.class)
+// get the Asset's associated MetadataSet
+def metadataSet = video.getMetadata()
+
+def slurper = new JsonSlurper()
+def metabaseData = slurper.parseText(metabaseReturn.toString())
+
+def metabaseDateInfo = slurper.parseText(metabaseDates.toString())
+
+def manifestCreationStatus = []
+
+// start by building the labs manifest map
+def labsManifest = [:]
+// create provider detail block
+labsManifest.put('providerDetails', [:])
+labsManifest.providerDetails.put('providerName', 'Crown Media Family Networks')
+labsManifest.providerDetails.put('providerID', 'hallmark')
+labsManifest.providerDetails.put('providerContactEmail', 'mediasupport@crownmedia.com')
+labsManifest.providerDetails.put('deliveryDateTime', formattedDeliveryTime)
+labsManifest.providerDetails.put('uniqueID', uniqueDeliveryID)
+
+// Create metadata block
+labsManifest.put('metadata', [:])
+
+// This logic translates specific titleClass values from metabase into values that HM Labs can understand.
+String theRealTitleClass
+if ( overrideTitleClass ) {
+	if ( reachTitleClass.toLowerCase() == 'mini-series'){
+		theRealTitleClass = 'episode'
+	}
+	else {
+		theRealTitleClass = reachTitleClass.toLowerCase()
+	}
+}
+else {
+	if ( metabaseData.titleClass.toLowerCase() == 'special' || metabaseData.titleClass.toLowerCase() == 'interstitial'){
+		theRealTitleClass = 'film'
+	}
+	if ( metabaseData.titleClass.toLowerCase() == 'mini-series' ) {
+		theRealTitleClass = 'episode'
+	}
+	else if (metabaseData.titleClass.toLowerCase() != 'special' && metabaseData.titleClass.toLowerCase() != 'mini-series' && metabaseData.titleClass.toLowerCase() != 'interstitial') {
+		theRealTitleClass = metabaseData.titleClass.toLowerCase()
+	}
+}
+//println("Content Type: ${theRealTitleClass}")
+labsManifest.metadata.put('contentType', theRealTitleClass)
+
+// Add SeriesID from Reachengne if Override TitleClass, or add SeriesID from Metabase if not Override.
+if (overrideTitleClass){
+	if (reachTitleClass.toLowerCase() == 'mini-series' || reachTitleClass.toLowerCase() == 'episode' ){
+		labsManifest.metadata.put('seriesID', seriesCode)
+	}
+}
+else{
+	if(metabaseData.titleClass.toLowerCase() == 'episode') {
+		labsManifest.metadata.put('seriesID', metabaseData.episodicInformation.seriesCode.toUpperCase())
+	}
+	else{
+	 	if(metabaseData.titleClass.toLowerCase() == 'mini-series' ){
+		labsManifest.metadata.put('seriesID', seriesCode)
+		}
+	}
+}
+
+// add series code if the content is episodic
+//if(metabaseData.titleClass.toLowerCase() == 'episode') {
+//	labsManifest.metadata.put('seriesID', metabaseData.episodicInformation.seriesCode.toUpperCase())
+//}
+//
+// also add series code from reach asset if the content is mini-series or we override the title class to 'mini-series'
+//if (overrideTitleClass && reachTitleClass.toLowerCase() == 'mini-series'){
+//	labsManifest.metadata.put('seriesID', seriesCode)
+//}
+//else if(metabaseData.titleClass.toLowerCase() == 'mini-series' ){
+//	labsManifest.metadata.put('seriesID', seriesCode)
+//}
+
+
+
+
+
+
+// Start building license & window date information
+// first we need to detect for all license/window dates specific to HMN
+
+// ### Temporary fix for Metabase V2 while supporting HM Labs V1 ###
+// ### THIS MUST BE RE-WORKED LATER FOR LABS MANIFEST V2 ###
+
+/*
+
+Revised Nov 2019. This logic to gather license dates has been moved to the validation step above.
+Since we're already inspecting these values above it's easier to just extract the values there instead
+of re-building the below. The below will NOT work with latest changes to Metabase JSON returns.
+Re-visit the below when we need to upgrade this workflow again.
+
+def eR = 0 //This is the index of what exploitation Right to use to gather the data
+//This one has a broader scope to allow for manual incrementing in the while loop
+//lW (below) This is the index of the license Window dates presented from metabase that are relevant to HMN
+//pW (below) This is the index of the publication window for HMN
+
+
+// this integer array contains 3 integers identifying the path to the correct license and window dates.
+// Position 0 is the exploitation right, Position 1 is the license window, position 2 is the publication window
+// if ever the values remain at -1 we determine that as a failure condition.
+def rightsIndexesArray = [-1, -1, -1]
+
+
+try{
+	if (metabaseData.nonLinearExploitationRights != null && metabaseData.nonLinearExploitationRights.size() > 0) {
+		while ( rightsIndexesArray == [-1, -1, -1] && eR < metabaseData.nonLinearExploitationRights.size() ){
+			//println("Checking Exploitation Rights Object ${eR}")
+			def exploitationRight = metabaseData.nonLinearExploitationRights[eR]
+			if (exploitationRight.channelCode == "NONLINEARHMN") {
+				// This means we have the object specific to HMN -- now keep digging here to find the first exploitation right that contains some publication window
+				if (exploitationRight.exploitationRightsWindows != null && exploitationRight.exploitationRightsWindows.size() > 0) {
+					// this means we have some exploitationRightsWindow (license dates)
+					for ( def lW = 0; lW < exploitationRight.exploitationRightsWindows.size(); lW++  ) {
+						def exploitationRightWindow = exploitationRight.exploitationRightsWindows[lW]
+						if (exploitationRightWindow.exploitationRightStartDate == null || exploitationRightWindow.exploitationRightEndDate == null){
+							continue
+						}
+						// now we're in the exploitationRightWindow Object. This contains license data.
+						// now we look for publicationWindows array
+						if (exploitationRightWindow.publicationWindows != null && exploitationRightWindow.publicationWindows.size() > 0){
+							for ( def pW =0; pW < exploitationRightWindow.publicationWindows.size(); pW++ ){
+								def publicationWindow = exploitationRightWindow.publicationWindows[pW]
+								// now we're in the publication window. Check for publication dates.
+								if (publicationWindow.publicationWindowStart != null && publicationWindow.publicationWindowEnd != null){
+									// Success! We have some non-null values for the dates, let's be sure they match some date pattern
+									if (publicationWindow.publicationWindowStart.matches("([0-9]{4})-([0-9]{2})-([0-9]{2})") && publicationWindow.publicationWindowEnd.matches("([0-9]{4})-([0-9]{2})-([0-9]{2})")) {
+										// Bigger success! We actually have strings that match a date pattern
+										rightsIndexesArray[0] = eR
+										rightsIndexesArray[1] = lW
+										rightsIndexesArray[2] = pW
+										//println("We have the dates!!! -- ${rightsIndexesArray}")
+									}
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+			eR++
+		}
+	}
+	else {
+		throw new Exception("Could not find any nonLinearExploitationRights")
+	}
+
+	// The loops are all done when we get here. Check the array for any "-1" values. If so this indicates a problem.
+	if (rightsIndexesArray.contains(-1)){
+		throw new Exception("Could not find License/Schedule Data from Metabase")
+	}
+}
+catch (Exception ex){
+	manifestCreationStatus.add("failure")
+	manifestCreationStatus.add(ex.message)
+	return manifestCreationStatus
+}
+
+*/
+
+// One last safety check to ensure we've got the data we expect. Remove when revising the above.
+
+if (metabaseDateInfo.status != "valid" || metabaseDateInfo.licenseWindowStart == null || metabaseDateInfo.licenseWindowEnd == null || metabaseDateInfo.scheduleWindowStart == null || metabaseDateInfo.scheduleWindowEnd == null){
+	manifestCreationStatus.add("failure")
+	manifestCreationStatus.add("Could not find License/Schedule Data from Metabase")
+}
+
+
+
+// Now that we've got valid data we should be able to use it to build license dates
+
+// build license dates container
+labsManifest.metadata.put('licenseWindow', [:])
+labsManifest.metadata.put('scheduleDates', [:])
+
+labsManifest.metadata.licenseWindow.put("start", metabaseDateInfo.licenseWindowStart)
+labsManifest.metadata.licenseWindow.put("end", metabaseDateInfo.licenseWindowEnd)
+
+labsManifest.metadata.scheduleDates.put("start", metabaseDateInfo.scheduleWindowStart)
+labsManifest.metadata.scheduleDates.put("end", metabaseDateInfo.scheduleWindowEnd)
+
+
+if(series) {
+	labsManifest.metadata.put('contentID', metabaseData.episodicInformation.seriesCode.toUpperCase())
+}
+else {
+	labsManifest.metadata.put('contentID', houseCode)
+}
+
+labsManifest.metadata.put('title', metabaseData.titleClass.toLowerCase() == 'episode' ? metabaseData.episodicInformation.episodeName : metabaseData.titleName)
+
+if(theRealTitleClass == 'episode') {
+	labsManifest.metadata.put('series', overrideTitleClass ? miniSeriesName : metabaseData.episodicInformation.seriesName)
+	labsManifest.metadata.put('season', overrideTitleClass ? 1 : metabaseData.episodicInformation.seasonNumber)
+	labsManifest.metadata.put('episodeRunOrder', overrideTitleClass ? miniSeriesSequence : metabaseData.episodicInformation.episodeNumber)
+}
+
+// This below code is likely not needed any more because of changes above. By this point nothing should be "mini-series"
+if(theRealTitleClass == 'mini-series') {
+	labsManifest.metadata.put('series', miniSeriesName) // mini-series name comes from Reach not metabase
+	labsManifest.metadata.put('season', 1) // mini-series always have 1 season
+	labsManifest.metadata.put('episodeRunOrder', miniSeriesSequence) // mini-series run order comes from reach not metabase
+}
+
+labsManifest.metadata.put('summary', metabaseData.titleMediumSynopsis)
+labsManifest.metadata.put('runtime', contentLength)
+// the release year data from metabase is a decimal such as 2016.0 -- for purposes here we truncate off the ".0" bit.
+// If metabase ever gets "fixed" to supply integers this will break.
+labsManifest.metadata.put('releaseYear', metabaseData.releaseYear.intValue())
+
+labsManifest.metadata.put('cast', [])
+if (metabaseData.credits != null){
+  if(metabaseData.credits.actors != null && metabaseData.credits.actors.size() > 0 ) {
+	  // Get each Actor in Actors
+	  for(def actor in metabaseData.credits.actors) {
+		  labsManifest.metadata.cast.add(actor.get('fullName'))
+	  }
+  }
+  else if ( labsManifest.metadata.cast == null || labsManifest.metadata.cast.size() == 0 ){
+	  labsManifest.metadata.cast.add("No Data")
+  }
+
+  if (metabaseData.credits.directors != null && metabaseData.credits.directors.size() > 0) {
+	// first create the director key in labs manifest and set to empty array
+	labsManifest.metadata.put( 'director', [] )
+	// run loop for metabase directors and push into array
+	for(def director in metabaseData.credits.directors) {
+		labsManifest.metadata.director.add(director.fullName)
+	}
+  }
+}
+
+if ( metabaseData.rating != null && metabaseData.rating != 'null' && metabaseData.rating != '' ) {
+	labsManifest.metadata.put('rating', [])
+	def ratingMap = [:]
+	switch(metabaseData.rating) {
+		case 'TV-Y':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-Y')
+			break
+		case 'TV-Y7':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-Y7')
+			break
+		case 'TV-G':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-G')
+			break
+		case 'TV-PG':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-PG')
+			break
+		case 'TV-14':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-14')
+			break
+		case 'TV-MA':
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'TV-MA')
+			break
+		default:
+			ratingMap.put('type', 'TV Guide')
+			ratingMap.put('rating', 'No Rating')
+			break
+	}
+	labsManifest.metadata.rating.push( ratingMap )
+}
+
+/*
+Omit sending these values for now. Not in scope.
+
+labsManifest.metadata.put( 'writer', null )
+labsManifest.metadata.put( 'studio', null )
+labsManifest.metadata.put( 'producer', null )
+*/
+
+if (metabaseData.genres != null && metabaseData.genres.size() > 0) {
+	// create empty array for genres
+	labsManifest.metadata.put( 'genres', [] )
+
+	//def primaryGenreCounter = 0
+	// run loop for metabase genres and push into array
+
+	for(def genre in metabaseData.genres) {
+		def singleGenreMap = [:]
+		singleGenreMap.put('genre', genre)
+		singleGenreMap.put('weighting', 'primary')
+		labsManifest.metadata.genres.push( singleGenreMap )
+	}
+}
+
+if(series && metabaseData.alternateIds.eidrSeries != null) {
+	labsManifest.metadata.put('eidr', metabaseData.alternateIds.eidrSeries)
+}
+
+if(!series && metabaseData.alternateIds.eidrTitle != null) {
+	labsManifest.metadata.put('eidr', metabaseData.alternateIds.eidrTitle)
+}
+else {
+	labsManifest.metadata.put('eidr', '10.5240/ABCD-1234-EFGH-5678-IJKL-M')
+}
+
+labsManifest.metadata.put('licenseTerritory', licenseTerritory)
+
+labsManifest.metadata.put('tags', [])
+
+def tagMetadataProperties = ["titleActivities","titleAffiliation","titleCharactersPrimary","titleCharactersSecondary","titleHolidays","titleLocationCity","titleLocationCountry","titleLocationRegion","titleSetting","titleLocationState","titleMoodPrimary","titleMoodSecondary","titlePerson","titleThemePrimary","titleThemeSecondary","titleTimePeriod"]
+
+for ( def tagMetadataProperty in tagMetadataProperties){
+	String[] metadataValues
+	try {
+		metadataValues = metadataService.getStoredMetadataValue(tagMetadataProperty, metadataSet)
+	}
+	catch (NotFoundException ex) {
+		println("Encountered Exception: " + ex.message)
+		continue
+	}
+	if (metadataValues == null || metadataValues.size() == 0 ){
+		continue
+	}
+
+	for ( metadataValue in metadataValues ) {
+		def metadataLabel = GetPicklistLabelFunction.evaluate(tagMetadataProperty, metadataValue)
+		println("Metadata field: ${tagMetadataProperty} |  Value: ${metadataLabel}")
+		labsManifest.metadata.tags.add(metadataLabel)
+	}
+}
+
+// Now just handle the one text field independently - the rest above are multi-picklist
+
+
+String relatedTitleTag
+
+try{
+	relatedTitleTag = metadataService.getStoredMetadataValue("titleRelatedTitles", metadataSet)
+}
+catch (NotFoundException ex){
+	println("Encountered Exception: " + ex.message)
+}
+if (relatedTitleTag != null && !relatedTitleTag.isEmpty()){
+	labsManifest.metadata.tags.add(relatedTitleTag)
+}
+
+// if we have zero tags then just remove it from the manifest.
+if (labsManifest.metadata.tags == null || labsManifest.metadata.tags.size() == 0) {
+	labsManifest.metadata.remove("tags")
+}
+
+labsManifest.metadata.put('creditStartTime', creditStartTime )
+
+// make the media block
+labsManifest.put('media',[:])
+labsManifest.media.put('video', [])
+
+def mainVideoContent = [:]
+
+mainVideoContent.put('contentID', houseCode)
+mainVideoContent.put('videoType', 'content')
+mainVideoContent.put('file', videoFileName)
+mainVideoContent.put('languageRegion', 'en-US')
+mainVideoContent.put('rasterSize', videoRasterSize )
+mainVideoContent.put('aspectRatio', aspectRatio )
+mainVideoContent.put('audioMapping', audioMapping )
+mainVideoContent.put('bitrate', videoBitrate )
+mainVideoContent.put('checksum', [:])
+mainVideoContent.checksum.put('type', 'MD5')
+mainVideoContent.checksum.put('value', videoChecksum)
+mainVideoContent.put('timeCodeType', videoTimeCodeType)
+mainVideoContent.put('frameRate', videoFrameRate )
+mainVideoContent.put('telecine', videoTelecine )
+mainVideoContent.put('videoScanType', videoScanType )
+
+labsManifest.media.video.add(mainVideoContent)
+
+labsManifest.media.put('timedText', [])
+
+def timedTextContent = [:]
+
+timedTextContent.put('contentID', houseCode)
+timedTextContent.put('timedTextType', 'captions')
+timedTextContent.put('timedTextFormat', 'DFXP-Flash')
+timedTextContent.put('file', labsCaptionsJson.newFilename.asText())
+timedTextContent.put('languageRegion', 'en-US')
+timedTextContent.put('checksum', [:])
+timedTextContent.checksum.put('type', 'MD5')
+timedTextContent.checksum.put('value', labsCaptionsJson.checksum.asText())
+timedTextContent.put('timeCodeType', 'NONE')
+timedTextContent.put('frameRate', videoFrameRate )
+
+labsManifest.media.timedText.add(timedTextContent)
+
+// build images block
+labsManifest.media.put('images', [])
+/*
+// this is the old stuff before merging in image collection flow and passed in JSON data.
+def imageTypes = []
+if(series) {
+	imageTypes = [ 'cat_16x9_no_title', 'cat_16x9_title', 'cat_row_vertical', 'cat_row_vertical_hover', 'cat_spotlight_large', 'cat_spotlight_lcr', 'cat_spotlight_small' ]
+}
+else {
+	imageTypes = [ '16x9_no_title', '16x9_title', '1x1', '1x1_detail', 'detail_banner_tablet', 'home_banner_tablet', 'key_art', 'spotlight_large', 'spotlight_lcr', 'spotlight_small', 'tv_feature_detail', 'webhero', 'cat_row_vertical', 'cat_row_vertical_hover' ]
+}
+*/
+
+// Don't use the types above -- just use passed in json array from labsImagesJson
+
+//println('Number of images in labsImagesJson: ' + labsImagesJson.size())
+for ( def imageInfo in labsImagesJson ) {
+	def imageContent = [:]
+	imageContent.put('type', imageInfo.type.asText())
+	imageContent.put('file', imageInfo.newFilename.asText())
+	imageContent.put('checksum', [:])
+	imageContent.checksum.put('type', 'MD5')
+	imageContent.checksum.put('value', imageInfo.checksum.asText())
+
+	labsManifest.media.images.add(imageContent)
+}
+
+def prettyJsonText = ( new JsonBuilder(labsManifest).toPrettyString())
+
+println(prettyJsonText)
+
+println('JSON Create:')
+println('********* Start building JSON (${jsonOutputFile.absolutePath}) *********' )
+
+new File(jsonOutputFile.absolutePath).withWriter{ out ->
+	out.write(prettyJsonText)
+}
+
+println('********* End building JSON (${jsonOutputFile.absolutePath}) *********')
+
+manifestCreationStatus.add("success")
+manifestCreationStatus.add("no errors thrown")
+
+return manifestCreationStatus
+			]]>
+		</script>
+	</groovyStep>
+
+	<!-- Failure Steps -->
+	<failWorkflowStep name="missing required data in metabase"
+					  executionLabelExpression="Missing Data | ${metabaseDates.errors.toString()}"
+					  reasonExpression="Missing Data | ${metabaseDates.errors.toString()}"
+	/>
+
+	<!-- STEPS: termination -->
+	<noopStep name="end"/>
+
+	<failWorkflowStep name="failed to create manifest"
+					  executionLabelExpression="Manifest Creation Failed. Reason: ${manifestCreationStatus[1]}"
+					  reasonExpression="Manifest Creation Failed. Reason: ${manifestCreationStatus[1]}"
+	/>
+
+	<!-- DATA DEFS -->
+
+	<contextDataDef name="validData"			dataType="String"	multiple="true"/>
+	<contextDataDef name="metabaseDates"		dataType="JSON"		>
+		<description>This JSON is the result of the metabase data validation groovy step. It includes if the input data from Metabse is valid and it also captures the license and schedule dates.</description>
+	</contextDataDef>
+
+	<!-- Passed in from parent -->
+	<contextDataDef name="uuid"						dataType="String"		/>
+	<contextDataDef name="labsCaptionsJson"			dataType="JSON"			/>
+	<contextDataDef name="labsImagesJson"			dataType="JSON"			multiple="true"/>
+	<contextDataDef name="overrideTitleClass"		dataType="Boolean"		defaultDataExpression="false"/>
+
+	<!-- File Output -->
+	<contextDataDef name="jsonOutputFile"			dataType="File"			defaultDataExpression="/stornext/MediaSAN/Media Ops/Engineering/${houseCode}_${uuid}.json"/>
+
+	<!-- Video Content -->
+	<contextDataDef name="video"					dataType="Data Object"	defaultDataExpression="${subject}"/>
+	<contextDataDef name="durationSeconds"			dataType="Double"		defaultDataExpression="${subject.mezzanine.duration}"/>
+	<contextDataDef name="backtimeAmount"			dataType="Integer"		defaultDataExpression="${durationSeconds &gt; 1439.0 ? 30 : 20}"/>
+	<contextDataDef name="series"					dataType="Boolean"		defaultDataExpression="false"/>
+	<contextDataDef name="timedTextFileName"		dataType="String"		defaultDataExpression="${uuid}.xml"/>
+	<contextDataDef name="videoScanType"			dataType="String"		defaultDataExpression="${#picklistLabel('videoScanType', subject.metadata.videoScanType)}"/>
+	<contextDataDef name="videoTelecine"			dataType="Boolean"		defaultDataExpression="${subject.metadata.telecine == null ? 'false' : subject.metadata.telecine}"/>
+	<contextDataDef name="videoFrameRate"			dataType="Double"		defaultDataExpression="${subject.mezzanine.frameRate}"/>
+	<contextDataDef name="videoTimeCodeType"		dataType="String"		defaultDataExpression="NDF"/>
+	<contextDataDef name="videoChecksum"			dataType="String"		defaultDataExpression="11111-111111-11111"/>
+	<contextDataDef name="videoBitrate"				dataType="Integer"		defaultDataExpression="50000000"/>
+	<contextDataDef name="audioMapping"				dataType="String"		defaultDataExpression="Stereo"/>
+	<contextDataDef name="aspectRatio"				dataType="String"		defaultDataExpression="${#picklistLabel('aspectRatio', subject.metadata.aspectRatio)}"/>
+	<contextDataDef name="videoRasterSize"			dataType="String"		defaultDataExpression="HD"/>
+	<contextDataDef name="videoFileName"			dataType="String"		/>
+	<contextDataDef name="creditStartTime"			dataType="String"		defaultDataExpression="${#formatDuration('HH:mm:ss.SSS', durationSeconds - backtimeAmount)}"/>
+	<contextDataDef name="licenseTerritory"			dataType="String"		defaultDataExpression="en-US"/>
+	<contextDataDef name="reachSvodStartDate"		dataType="String"		defaultDataExpression="${#formatDate('yyyy-MM-dd', subject.metadata.sVODLiveDate)}"/>
+	<contextDataDef name="reachSvodEndDate"			dataType="String"		defaultDataExpression="${#formatDate('yyyy-MM-dd', subject.metadata.sVODKillDate)}"/>
+	<contextDataDef name="houseCode"				dataType="String"		defaultDataExpression="${subject.metadata.houseCode}"/>
+	<contextDataDef name="metabaseReturn"			dataType="String"		/>
+	<contextDataDef name="reachDeliveryTime"		dataType="Date/Time"	defaultDataExpression="${#newDate()}"/>
+	<contextDataDef name="formattedDeliveryTime"	dataType="String"		defaultDataExpression="${#formatDate('w3c', reachDeliveryTime)}"/>
+	<contextDataDef name="uniqueDeliveryID"			dataType="String"		defaultDataExpression="${#uuid().toString()}"/>
+	<contextDataDef name="contentLength"			dataType="String"		defaultDataExpression="${#formatDuration('HH:mm:ss', durationSeconds)}"/>
+	<contextDataDef name="manifestCreationStatus"	dataType="String"		multiple="true"/>
+
+	<!-- Metadata data defs from parent (video) asset -->
+	<contextDataDef name="seriesCode"				dataType="String"		defaultDataExpression="${subject.metadata.seriesID}"/>
+	<contextDataDef name="miniSeriesSequence"		dataType="Integer"		defaultDataExpression="${subject.metadata.episodeSequence}"/>
+	<contextDataDef name="miniSeriesName"			dataType="String"		defaultDataExpression="${#picklistLabel('series', subject.metadata.series)}"/>
+	<contextDataDef name="reachTitleClass"			dataType="String"		defaultDataExpression="${#picklistLabel('titleClass', subject.metadata.titleClass)}"/>
+</workflow>

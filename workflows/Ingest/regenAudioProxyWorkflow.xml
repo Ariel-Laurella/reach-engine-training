@@ -1,0 +1,75 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="
+    http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-2.3.xsd
+    http://levelsbeyond.com/schema/workflow/nimbus http://www.levelsbeyond.com/schema/production/nimbus-common-workflow-1.5.xsd
+    "
+          id="regenAudioProxyWorkflow"
+          name="Regenerate Audio Proxy"
+          executionLabelExpression="Regenerate Proxy for ${subject.name}"
+          description=""
+
+          deadlineExpression=""
+          subjectDOClassName="AudioAssetMaster"
+          showInUserInterface="true"
+          subjectQualifierExpression=""
+
+        >
+
+    <initialStepName>create_proxy</initialStepName>
+
+<!--    <noopStep name="check_for_archived_content" pctComplete="5">
+        <transition condition="${contentArchived}">
+            <targetStepName>restore content</targetStepName>
+        </transition>
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </noopStep>
+
+    <executeSubflowStep
+            name="restore content"
+            subjectChangePath="${subject}"
+            targetWorkflowId="restoreAsset"
+            pctComplete="50"
+            >
+        <transition condition="=true">
+            <targetStepName>regenerateProxy</targetStepName>
+        </transition>
+    </executeSubflowStep>-->
+    
+    <convertAudioStep
+        name="create_proxy"        
+        executionLabelExpression="Transcode ${transcodeSourceFile.name} to proxy"
+        sourceFileExpression="=transcodeSourceFile"        
+        mediaConversionTemplateExpression="${proxyTemplate}"
+        pctComplete="80"
+        resultDataDef="transcodeResultFile">
+        
+        <transition condition="=true">
+            <targetStepName>save proxy to repository</targetStepName>
+        </transition>
+    </convertAudioStep>
+    
+    <saveAssetStep 
+        name="save proxy to repository" 
+        executionLabelExpression="Save transcode result ${transcodeResultFile.name} to repository"
+        contentExpression="=transcodeResultFile"
+        contentUseExpression="Proxy"    	
+        pctComplete="95"
+        versionAssetExpression="=false">
+        <transition condition="=true">
+            <targetStepName>delete transcode artifact</targetStepName>
+        </transition>
+    </saveAssetStep> 
+    
+    <deleteFileStep name="delete transcode artifact" sourceFilesExpression="${transcodeResultFile}" continueOnException="true"></deleteFileStep>
+    
+    <contextDataDef name="sourceCopyPath" dataType="Directory"/>
+    <contextDataDef name="proxyTemplate" dataType="String" defaultDataExpression="${#sysconfig('import.audioProxySettingName')}"/>
+    <contextDataDef name="transcodeSourceFile" dataType="File" defaultDataExpression="=subject.file"/>
+    <contextDataDef name="transcodeResultFile" dataType="File"/>
+
+
+</workflow>

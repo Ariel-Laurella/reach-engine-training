@@ -1,0 +1,79 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="parentVideoDeliveryTest"
+        name="Parent BrightCove Delivery"
+        executionLabelExpression="Parent Deliver to Brightcove"
+        description=""
+        subjectDOClassName="VideoAssetMaster"
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion="4.2"
+        resultDataDef=""
+>
+    <initialStepName>create mp4 for delivery</initialStepName>
+
+    <!-- this workflow passes the needed information down to the brightcove delivery workflow.
+        Step 1: create the MP4 for delivery
+        Step 2: Invoke the delivery workflow, using the created video as a source.
+
+        Caption file is a sample file that does not change for each test.
+        Poster Image data is sample that does not change for each test.
+    -->
+
+
+    <convertVideoStep name="create mp4 for delivery"
+                      executionLabelExpression="Create MP4 for delivery"
+                      mediaConversionTemplateExpression="CreateVideoProxy"
+                      sourceFileExpression="${sourceVideo}"
+                      resultDataDef="watermarkedVideo"
+                      pctComplete="35"
+                      nextStep="deliver files to brightcove"
+    >
+        <conversionParam name="File Name">${uuid}</conversionParam>
+    </convertVideoStep>
+
+    <executeSubflowStep name="deliver files to brightcove"
+                        targetWorkflowId="SendVideoToBrightcove"
+                        resultDataDef="deliveryResult"
+                        pctComplete="75"
+    >
+        <transition condition="${deliveryResult.equals('success')}">
+            <targetStepName>delete watermarked video</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>delivery failure</targetStepName>
+        </transition>
+
+        <subflowContextDataMapping parentDataDef="title"		        subflowDataDef="uploadName"/>
+        <subflowContextDataMapping parentDataDef="houseCode"            subflowDataDef="houseCode"/>
+        <subflowContextDataMapping parentDataDef="watermarkedVideo"		subflowDataDef="videoToUpload"/>
+        <subflowContextDataMapping parentDataDef="webVttFile"           subflowDataDef="captionsToUpload"/>
+        <subflowContextDataMapping parentDataDef="posterData"           subflowDataDef="posterData"/>
+        <subflowContextDataMapping parentDataDef="uploadRateMBps"       subflowDataDef="uploadRateMBps"/>
+    </executeSubflowStep>
+
+    <deleteFileStep name="delete watermarked video"
+                    sourceFilesExpression="${watermarkedVideo}"
+                    nextStep="end"
+    />
+
+    <failWorkflowStep name="delivery failure"
+                      executionLabelExpression="The content failed processing in brightcove"
+                      reasonExpression="The content failed processing in brightcove" />
+
+    <noopStep name="end"/>
+
+    <!-- Video Data Defs -->
+    <contextDataDef name="videoDuration"			dataType="Double"	defaultDataExpression="${subject.mezzanine.duration}"/>
+    <contextDataDef name="title"					dataType="String"	defaultDataExpression="${subject.name}"/>
+    <contextDataDef name="watermarkedVideo"			dataType="File"		/>
+    <contextDataDef name="sourceVideo"				dataType="File"		defaultDataExpression="${subject.mezzanine.file}"/>
+    <contextDataDef name="posterData"               dataType="JSON"     defaultDataExpression="{'posterUrl':'https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg', 'width':1920, 'height':1080}"/>
+    <contextDataDef name="webVttFile"               dataType="File"     defaultDataExpression="/reachengine/media/temp/sample_captions.dfxp"/>
+    <contextDataDef name="houseCode"				dataType="String"	defaultDataExpression="TEST1234" userInput="true" label="House Code"/>
+    <contextDataDef name="uuid"						dataType="String"	defaultDataExpression="${#uuid().toString()}"/>
+    <contextDataDef name="deliveryResult"           dataType="String"   />
+    <contextDataDef name="uploadRateMBps"           dataType="Integer"  defaultDataExpression="25" />
+</workflow>

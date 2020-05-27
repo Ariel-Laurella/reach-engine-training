@@ -1,0 +1,270 @@
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-4.2.xsd"
+          id="hmAnyAssetIngestBackup"
+          name="Ingest Asset And Backup"
+          executionLabelExpression="Ingest file ${fileToIngest.name} into repository"
+          description=""
+          subjectDOClassName=""
+          showInUserInterface="true"
+          resultDataDef="assetVersion"
+          deadlineExpression=""
+          sdkVersion="4.2">
+
+
+	<initialStepName>set categoryName</initialStepName>
+	
+	<setContextData name="set categoryName"
+					targetDataDef="categoryName" 
+					valueExpression="${categories.name}"
+				 	continueOnException="true"	
+		>
+		<transition condition="true">
+			<targetStepName>determine media type</targetStepName>
+		</transition>
+	</setContextData>
+	
+	<setContextData name="determine media type"
+	                targetDataDef="mediaType"
+	                valueExpression="${#mediaType(fileToIngest)}"
+		>
+		<transition condition="${mediaType == 'VIDEO'}">
+			<targetStepName>ingest video asset</targetStepName>
+		</transition>
+		<transition condition="${mediaType == 'AUDIO'}">
+			<targetStepName>ingest audio asset</targetStepName>
+		</transition>
+		<transition condition="${mediaType == 'IMAGE'}">
+			<targetStepName>ingest image asset</targetStepName>
+		</transition>
+		<transition condition="${mediaType == 'DOCUMENT'}">
+			<targetStepName>ingest document asset</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>ingest other asset</targetStepName>
+		</transition>
+
+	</setContextData>
+
+	<executeSubflowStep name="ingest video asset"
+	                    targetWorkflowId="${#sysconfig('workflows.videoIngestWorkflow')}"
+	                    pctComplete="99"
+	                    displayName="Ingesting Video"
+	                    subjectChangePath="${fileToIngest}"
+	                    subflowTargetDataDef="fileToIngest"
+	                    resultDataDef="assetVersion"
+		>
+
+		<transition condition="true">
+			<targetStepName>backup video to lattus</targetStepName>
+		</transition>
+		<subflowContextDataMapping subflowDataDef="skipMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+		<subflowContextDataMapping subflowDataDef="sourceCopyPath" parentDataDef="sourceCopyPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataRootPath" parentDataDef="metadataRootPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataPathProperties" parentDataDef="metadataPathProperties"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="emailAddresses" parentDataDef="emailAddresses"/>
+		<subflowContextDataMapping subflowDataDef="allowDuplicateNamesFlag" parentDataDef="allowDuplicateNamesFlag"/>
+		<subflowContextDataMapping subflowDataDef="categoryName" parentDataDef="categoryName"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="ingest audio asset"
+	                    targetWorkflowId="${#sysconfig('workflows.audioIngestWorkflow')}"
+	                    pctComplete="99"
+	                    displayName="Ingesting Audio"
+	                    subjectChangePath="${fileToIngest}"
+	                    subflowTargetDataDef="fileToIngest"
+	                    resultDataDef="assetVersion"
+		>
+		<transition condition="true">
+			<targetStepName>backup asset to lattus</targetStepName>
+		</transition>
+		<subflowContextDataMapping subflowDataDef="skipAudioMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+		<subflowContextDataMapping subflowDataDef="sourceCopyPath" parentDataDef="sourceCopyPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataRootPath" parentDataDef="metadataRootPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataPathProperties" parentDataDef="metadataPathProperties"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="emailAddresses" parentDataDef="emailAddresses"/>
+		<subflowContextDataMapping subflowDataDef="allowDuplicateNamesFlag" parentDataDef="allowDuplicateNamesFlag"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="ingest image asset"
+	                    targetWorkflowId="${#sysconfig('workflows.imageIngestWorkflow')}"
+	                    pctComplete="99"
+	                    displayName="Ingesting Image"
+	                    subjectChangePath="${fileToIngest}"
+	                    subflowTargetDataDef="fileToIngest"
+	                    resultDataDef="assetVersion"
+		>
+
+		<transition condition="true">
+			<targetStepName>backup asset to lattus</targetStepName>
+		</transition>
+		<subflowContextDataMapping subflowDataDef="skipMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+		<subflowContextDataMapping subflowDataDef="metadataRootPath" parentDataDef="metadataRootPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataPathProperties" parentDataDef="metadataPathProperties"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="emailAddresses" parentDataDef="emailAddresses"/>
+		<subflowContextDataMapping subflowDataDef="allowDuplicateNamesFlag" parentDataDef="allowDuplicateNamesFlag"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="ingest document asset"
+	                    targetWorkflowId="${#sysconfig('workflows.documentIngestWorkflow')}"
+	                    pctComplete="99"
+	                    displayName="Ingesting Asset"
+	                    subjectChangePath="${fileToIngest}"
+	                    subflowTargetDataDef="fileToIngest"
+	                    resultDataDef="assetVersion"
+		>
+
+		<transition condition="true">
+			<targetStepName>backup asset to lattus</targetStepName>
+		</transition>
+
+		<subflowContextDataMapping subflowDataDef="skipMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+		<subflowContextDataMapping subflowDataDef="metadataRootPath" parentDataDef="metadataRootPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataPathProperties" parentDataDef="metadataPathProperties"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="emailAddresses" parentDataDef="emailAddresses"/>
+		<subflowContextDataMapping subflowDataDef="allowDuplicateNamesFlag" parentDataDef="allowDuplicateNamesFlag"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="ingest other asset"
+	                    targetWorkflowId="${#sysconfig('workflows.otherIngestWorkflow')}"
+	                    pctComplete="99"
+	                    displayName="Ingesting Asset"
+	                    subjectChangePath="${fileToIngest}"
+	                    subflowTargetDataDef="fileToIngest"
+	                    resultDataDef="assetVersion"
+		>
+
+		<transition condition="true">
+			<targetStepName>backup asset to lattus</targetStepName>
+		</transition>
+
+		<subflowContextDataMapping subflowDataDef="skipMezzanineFlag" parentDataDef="skipMezzanineFlag"/>
+		<subflowContextDataMapping subflowDataDef="metadataRootPath" parentDataDef="metadataRootPath"/>
+		<subflowContextDataMapping subflowDataDef="metadataPathProperties" parentDataDef="metadataPathProperties"/>
+		<subflowContextDataMapping subflowDataDef="metadata" parentDataDef="metadata"/>
+		<subflowContextDataMapping subflowDataDef="jsonMetadata" parentDataDef="jsonMetadata"/>
+		<subflowContextDataMapping subflowDataDef="emailAddresses" parentDataDef="emailAddresses"/>
+		<subflowContextDataMapping subflowDataDef="allowDuplicateNamesFlag" parentDataDef="allowDuplicateNamesFlag"/>
+	</executeSubflowStep>
+	
+	<executeSubflowStep name="backup video to lattus"
+						targetWorkflowId="hmArchiveVideoToLattusHttp"
+						subjectChangePath="${assetVersion.masterAsset.timelineAssets.![timeline][0]}"	
+		>
+		<transition condition="true">
+			<targetStepName>Mark Source On Disk Date</targetStepName>
+		</transition>
+		
+		<subflowContextDataMapping parentDataDef="archiveOrBackup" subflowDataDef="archiveOrBackup"/>
+	</executeSubflowStep>
+	
+	<executeSubflowStep name="backup asset to lattus"
+		targetWorkflowId="hmArchiveAssetToLattusHttp"
+		subjectChangePath="${assetVersion.masterAsset}"	
+		>
+		<transition condition="true">
+			<targetStepName>Mark Source On Disk Date</targetStepName>
+		</transition>
+		
+		<subflowContextDataMapping parentDataDef="archiveOrBackup" subflowDataDef="archiveOrBackup"/>
+	</executeSubflowStep>
+
+	<saveDataObjectStep name="Mark Source On Disk Date"
+	                    executionLabelExpression="Mark source on disk date"
+	                    dataObjectExpression="${ assetVersion.originalContent }"
+		>
+		<transition condition="${ true }">
+			<targetStepName>Check for mezzanine content for archive</targetStepName>
+		</transition>
+
+		<property name="truncateAfter">${ #newDate() }</property>
+	</saveDataObjectStep>
+
+	<noopStep name="Check for mezzanine content for archive" devStep="true">
+		<transition condition="${ assetVersion?.mezzanineContent != null }">
+			<targetStepName>Mark Mezzanine On Disk Date</targetStepName>
+		</transition>
+		<transition condition="${ true }">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+
+	<saveDataObjectStep name="Mark Mezzanine On Disk Date"
+	                    executionLabelExpression="Mark mezzanine on disk date"
+	                    dataObjectExpression="${ assetVersion.mezzanineContent}"
+		>
+		<transition condition="${ true }">
+			<targetStepName>end</targetStepName>
+		</transition>
+
+		<property name="truncateAfter">${ #newDate() }</property>
+	</saveDataObjectStep>
+
+	<noopStep name="end"/>
+
+
+	<!-- INPUT DATADEFS -->
+	<contextDataDef name="categories" dataType="Data Object" label="Category To Ingest To" userInput="true">
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCategory">
+				<searchPath>name</searchPath>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+	<contextDataDef name="categoryName" dataType="String"></contextDataDef>
+	
+	<contextDataDef dataType="File" name="fileToIngest" label="File" required="true" userInput="true">
+		<description>
+			The file to ingest into the repository. Must be provided when starting the workflow.
+		</description>
+	</contextDataDef>
+	<contextDataDef name="skipMezzanineFlag" label="Use Source as Mezzanine" dataType="Boolean" userInput="true"
+	                defaultDataExpression="${true}">
+		<description>
+			For video ingests, determines whether to create a separate mezzanine file or to use the source as the
+			mezzanine.
+			True by default.
+		</description>
+	</contextDataDef>
+	<contextDataDef name="allowDuplicateNamesFlag" label="Allow Duplicate File Names" dataType="Boolean" userInput="true"
+	                defaultDataExpression="${false}">
+		<description>
+			Optionally, ignore name collisions with already ingested assets.
+			False by default.
+		</description>
+	</contextDataDef>
+	<contextDataDef dataType="Directory" name="sourceCopyPath">
+		<description>
+			Optional intermediary directory before transcode. Use this path if the transcoder does not have direct
+			access to the repository
+		</description>
+	</contextDataDef>
+	<contextDataDef name="sourceArchiveEnabled" dataType="Boolean"
+	                defaultDataExpression="${ #sysconfig('archive.source.enabled') }"/>
+	<contextDataDef name="mezzArchiveEnabled" dataType="Boolean"
+	                defaultDataExpression="${ #sysconfig('archive.mezzanine.enabled') }"/>
+
+	<!-- metadata input defs -->
+	<contextDataDef name="metadataRootPath" dataType="Directory"/>
+	<contextDataDef name="metadataPathProperties" dataType="String" multiple="true"/>
+	<contextDataDef name="metadata" dataType="NameValuePair" multiple="true"/>
+	<contextDataDef name="jsonMetadata" dataType="JSON" multiple="false"/>
+
+	<!-- notifaction emails -->
+	<contextDataDef name="emailAddresses" dataType="String" multiple="true"/>
+
+	<!-- PROCESSING DATADEFS -->
+	<contextDataDef name="mediaType" dataType="String"/>
+	<contextDataDef dataType="Data Object" name="assetVersion"/>
+	<contextDataDef name="archiveOrBackup" dataType="String" defaultDataExpression="Backup"/>
+
+</workflow>

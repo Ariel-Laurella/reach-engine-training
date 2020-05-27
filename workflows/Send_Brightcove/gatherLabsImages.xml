@@ -1,0 +1,193 @@
+<!--
+  ~ Hallmark Channel Custom Reach Engine Workflow
+-->
+<workflow
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+
+	id="gatherLabsImages"
+	name="Gather HMN/Labs Images"
+	executionLabelExpression="Gather Labs Images ${houseCode}"
+	description=""
+	subjectDOClassName=""
+	resultDataDef="labsImagesJson"
+	sdkVersion="2.3.8"
+	showInUserInterface="false"
+>
+	<initialStepName>loop to retrieve images</initialStepName>
+
+	<noopStep name="check for series"
+		executionLabelExpression="Series: ${series}"
+	>
+		<transition condition="${series}">
+			<targetStepName>set searchEndpoints to series list</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>loop to retrieve images</targetStepName>
+		</transition>
+	</noopStep>
+
+	<setContextData name="set searchEndpoints to series list"
+		targetDataDef="searchEndpoints"
+		valueExpression="Labs-Series-16x9 No Title, Labs-Series-16x9 Title, Labs-Series-Spotlight Small, Labs-Series-Spotlight Large, Labs-Series-Spotlight LCR, Labs-Series-Row Vertical, Labs-Series-Row Vertical Hover"
+		nextStep="loop to retrieve images"
+	/>
+
+	<noopStep name="loop to retrieve images">
+		<transition condition="${imageCounter == searchEndpoints.size()}">
+			<targetStepName>all done</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>find image</targetStepName>
+		</transition>
+	</noopStep>
+
+	<queryStep name="find image"
+		targetDataObjectClass="ImageAssetMaster"
+		resultDataDef="labsImage"
+		executionLabelExpression="Finding Image | HouseCode: ${houseCode} | Endpoint: ${searchEndpoints[imageCounter]}"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="metadata.houseCode" op="eq" nullTargets="false">
+			<test value="${houseCode}"/>
+		</condition>
+		<condition property="metadata.endpointImageDetail" op="eq" nullTargets="false">
+			<test value="${#picklistValue('endpointImageDetail', searchEndpoints[imageCounter])}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+		<transition condition="${labsImage != null AND labsImage.mezzanine.truncatedFlag == false}">
+			<targetStepName>generate md5 checksum</targetStepName>
+		</transition>
+		<transition condition="${labsImage != null AND labsImage.mezzanine.truncatedFlag == true}">
+			<targetStepName>restore image from archive</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>could not find image</targetStepName>
+		</transition>
+	</queryStep>
+
+<!--
+	<queryStep name="find image"
+		targetDataObjectClass="ImageAssetMaster"
+		resultDataDef="labsImages"
+		executionLabelExpression="Finding Image | HouseCode: ${houseCode} | Endpoint: ${searchEndpoints[imageCounter]}"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="metadata.houseCode" op="eq" nullTargets="false">
+			<test value="${houseCode}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+		<transition condition="${true}">
+			<targetStepName>filter image results</targetStepName>
+		</transition>
+	</queryStep>
+
+	<setContextData name="filter image results"
+		executionLabelExpression="Value: ${#picklistValue('endpointImageDetail', searchEndpoints[imageCounter])}"
+		targetDataDef="labsImage"
+		valueExpression="${labsImages.?[metadata.endpointImageDetail.equals('Labs-16x9 No Title')]}"
+		nextStep="all done"
+	/>
+	-->
+	<executeSubflowStep name="restore image from archive"
+		targetWorkflowId="${#sysconfig('workflow.default.restoreAssetWorkflowID')}"
+		subjectChangePath="${labsImage}"
+		nextStep="generate md5 checksum"
+	/>
+
+	<runCommandStep name="generate md5 checksum"
+		executablePathExpression="/usr/bin/md5sum"
+		stdoutDataDef="imageMd5Value"
+		nextStep="split md5 value"
+	>
+		<arg>${labsImage.mezzanine.file.absolutePath}</arg>
+	</runCommandStep>
+
+	<setContextData name="split md5 value"
+		targetDataDef="imageMd5ValueParts"
+		valueExpression="${#splitString(imageMd5Value, ' ', true, true)}"
+		nextStep="add asset to labs image json"
+	/>
+
+	<groovyStep name="add asset to labs image json"
+		resultDataDef="labsImagesJson"
+		nextStep="clear image"
+	>
+		<script>
+			<![CDATA[
+import groovy.json.JsonSlurper
+//println(searchEndpoints[0])
+//println(searchEndpoints[imageCounter.toInteger()])
+//println('my counter class is ' + imageCounter.getClass())
+
+//load table of definitions for labs information.
+
+def slurper = new JsonSlurper()
+File jsonFile = new File('/stornext/MediaSAN/ReachEngine/resources/labsImageFormats.json')
+Map labsImageTypeMap = slurper.parse(jsonFile)
+
+def labsImageType = labsImageTypeMap.getAt( searchEndpoints[imageCounter.toInteger()] )
+
+def imageMap = [:]
+
+imageMap.put( 'type', labsImageType )
+imageMap.put( 'object', labsImage.toString() )
+imageMap.put( 'sourceFilePath', labsImage.originalContent.file.absolutePath )
+imageMap.put( 'newFilename', houseCode + '_' + labsImageType + '.' + labsImage.originalContent.fileExtension )
+imageMap.put( 'checksum', imageMd5ValueParts[0] )
+
+labsImagesJson.push( imageMap )
+
+return labsImagesJson
+			]]>
+		</script>
+	</groovyStep>
+
+	<!-- clearing image to avoid re-use of same data object if search doesn't find a new image -->
+	<setContextData name="clear image"
+		targetDataDef="labsImage"
+		valueExpression=""
+		nextStep="increment image counter"
+	/>
+
+	<setContextData name="increment image counter"
+		targetDataDef="imageCounter"
+		valueExpression="${imageCounter + 1}"
+		nextStep="loop to retrieve images"
+	/>
+
+	<!-- STEPS: termination -->
+	<noopStep name="all done"></noopStep>
+
+	<noopStep name="no items found"></noopStep>
+
+	<failWorkflowStep name="could not find image"
+		reasonExpression="Could not find image ${searchEndpoints[imageCounter]}"
+		executionLabelExpression="Could not find image ${searchEndpoints[imageCounter]}"
+	/>
+
+
+	<!-- DATA DEFS -->
+	<contextDataDef name="series"				dataType="Boolean"		/>
+	<contextDataDef name="imageMd5Value"		dataType="String"		multiple="true"	/>
+	<contextDataDef name="imageMd5ValueParts"	dataType="String"		multiple="true"	/>
+	<contextDataDef name="houseCode"			dataType="String"		/>
+	<contextDataDef name="labsImage"			dataType="Data Object"	/>
+	<contextDataDef name="labsImages"			dataType="Data Object"	multiple="true"/>
+	<contextDataDef name="labsImagesJson"		dataType="JSON"			multiple="true" defaultDataExpression="[]"/>
+	<contextDataDef name="imageCounter"			dataType="Integer"		defaultDataExpression="0"/>
+	<contextDataDef name="searchEndpoints"		dataType="String"		multiple="true" defaultDataExpression="Labs-16x9 No Title, Labs-16x9 Title, Labs-1x1, Labs-1x1 Detail, Labs-Cat Row Vertical, Labs-Cat Row Vertical Hover, Labs-Detail Banner Tablet, Labs-Home Banner Tablet, Labs-Keyart, Labs-Spotlight Large, Labs-Spotlight LCR, Labs-Spotlight Small, Labs-TV Feature Detail, Labs-WebHero"/>
+</workflow>

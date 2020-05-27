@@ -1,0 +1,101 @@
+<!--
+  ~ Hallmark Channel Custom Reach Engine Workflow
+-->
+<workflow
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+
+	id="gatherLabsCaptions"
+	name="Gather HMN/Labs Captions"
+	executionLabelExpression="Gather Labs Captions ${houseCode}"
+	description=""
+	subjectDOClassName=""
+	resultDataDef="labsCaptionsJson"
+	sdkVersion="2.3.8"
+	showInUserInterface="false"
+>
+	<initialStepName>find captions</initialStepName>
+
+	<queryStep name="find captions"
+		targetDataObjectClass="DocumentAssetMaster"
+		resultDataDef="labsCaptions"
+		executionLabelExpression="Finding Captions | HouseCode: ${houseCode} | Type: DFXP"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="metadata.houseCode" op="eq" nullTargets="false">
+			<test value="${houseCode}"/>
+		</condition>
+		<condition property="metadata.assetFormat" op="eq" nullTargets="false">
+			<test value="${#picklistValue('assetFormat', 'DFXP')}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+		<transition condition="${labsCaptions[0] != null AND labsCaptions[0].originalContent.truncatedFlag == false}">
+			<targetStepName>generate md5 checksum</targetStepName>
+		</transition>
+		<transition condition="${labsCaptions[0] != null AND labsCaptions[0].originalContent.truncatedFlag == true}">
+			<targetStepName>restore captions from archive</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>could not find captions</targetStepName>
+		</transition>
+	</queryStep>
+
+	<executeSubflowStep name="restore captions from archive"
+		targetWorkflowId="${#sysconfig('workflow.default.restoreAssetWorkflowID')}"
+		subjectChangePath="${labsCaptions[0]}"
+		nextStep="generate md5 checksum"
+	/>
+
+	<runCommandStep name="generate md5 checksum"
+		executablePathExpression="/usr/bin/md5sum"
+		stdoutDataDef="captionsMd5Value"
+		nextStep="split md5 value"
+	>
+		<arg>${labsCaptions[0].originalContent.file.absolutePath}</arg>
+	</runCommandStep>
+
+	<setContextData name="split md5 value"
+		targetDataDef="captionsMd5ValueParts"
+		valueExpression="${#splitString(captionsMd5Value, ' ', true, true)}"
+		nextStep="add asset to labs captions json"
+	/>
+
+	<groovyStep name="add asset to labs captions json"
+		resultDataDef="labsCaptionsJson"
+		nextStep="end"
+	>
+		<script>
+			<![CDATA[
+def labsCaptionsJson = [:]
+
+//labsCaptionsJson.put( 'object', '[DocumentAssetMaster.' + captionsMd5ValueParts[0].uuid + '.' + captionsMd5ValueParts[0].id + ']')
+labsCaptionsJson.put('object', labsCaptions[0].toString())
+labsCaptionsJson.put('sourceFilePath', labsCaptions[0].originalContent.file.absolutePath)
+labsCaptionsJson.put('newFilename', labsCaptions[0].uuid + '.dfxp')
+labsCaptionsJson.put('checksum', captionsMd5ValueParts[0])
+
+return labsCaptionsJson
+			]]>
+		</script>
+	</groovyStep>
+
+	<!-- STEPS: termination -->
+	<noopStep name="end"/>
+
+	<failWorkflowStep reasonExpression="could not find captions" name="could not find captions"></failWorkflowStep>
+
+
+	<!-- DATA DEFS -->
+	<contextDataDef name="captionsMd5Value"			dataType="String"		multiple="true"	/>
+	<contextDataDef name="captionsMd5ValueParts"	dataType="String"		multiple="true"	/>
+	<contextDataDef name="houseCode"				dataType="String"						/>
+	<contextDataDef name="labsCaptionsJson"			dataType="JSON"			multiple="true"	defaultDataExpression="[]"/>
+	<contextDataDef name="labsCaptions"				dataType="Data Object"	multiple="true"	/>
+</workflow>

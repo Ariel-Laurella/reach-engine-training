@@ -1,0 +1,118 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+    id="extractAssetMetadata"
+    name="Extract Asset Metadata"
+    executionLabelExpression="Extract Asset Metadata | Asset: ${asset.name} | Metadata Id: ${asset.metadata.id}"
+    description=""
+    subjectDOClassName=""
+    resultDataDef="jsonMetadata"
+    deadlineExpression=""
+    showInUserInterface="false"
+    sdkVersion=""
+    >
+    
+    
+    
+    <initialStepName>retrieve metadata</initialStepName>
+    
+    
+    
+    <!-- ............................................ Extract Metadata Steps .............................................. -->
+    <!-- Get metadata via api (returned in json format) -->
+    <submitHttpStep name="retrieve metadata"
+        urlExpression="${reachUrl}/reachengine/api/metadata/${asset.metadata.id}"
+        requestMethodExpression="GET"
+        responsePayloadDataDef="jsonMetadata"
+        executionLabelExpression="Retrieving metadata from metadata object with id ${asset.metadata.id}"
+        pctComplete="20"
+        nextStep="log api metadata json"
+    >
+        <requestHeader name="apiKey">${systemApiKey}</requestHeader>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+    </submitHttpStep>
+    
+    
+    
+    <!-- log returned json -->
+    <testStep name="log api metadata json"
+        outputExpression="Api metadata json for asset ${asset.name} (metdata object id = ${asset.metadata.id}): ${jsonMetadata.toString()}"
+        executionLabelExpression="Api json displayed in log."
+        pctComplete="25"
+        nextStep="add category names to json"
+    />
+    
+    
+    
+    <!-- adding categories as an addition to the metadata -->
+    <setContextData name="add category names to json"
+        executionLabelExpression="Adding category names: ${asset.metadata.categoryNames.toString()}"
+        targetDataDef="jsonMetadata"
+        valueExpression="${jsonMetadata.put('categoryNames', #joinElements(asset.metadata.categoryNames,'|'))}"
+        >
+        <transition condition="${asset instanceof T(com.routeto1.asset.AssetCollection)}">
+            <targetStepName>log formatted metadata json</targetStepName>
+        </transition>
+        <transition condition="${collections != null AND collections.size() &gt; 0}">
+            <targetStepName>add collection objects to json</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>log formatted metadata json</targetStepName>
+        </transition>
+    </setContextData>
+    
+    
+    
+    <!-- adding collections as an addition to the metadata -->
+    <setContextData name="add collection objects to json"
+        executionLabelExpression="Adding collection objects: ${asset.collectionMemberships.![collection.id]}"
+        targetDataDef="jsonMetadata"
+        valueExpression="${jsonMetadata.put('collections', collectionString )}"
+        nextStep="log formatted metadata json"
+    />
+    
+    
+    
+    <!-- log returned json -->
+    <testStep name="log formatted metadata json"
+        outputExpression="Formatted metadata json for asset ${asset.name} (metdata object id = ${asset.metadata.id}): ${jsonMetadata.toString()}"
+        executionLabelExpression="formatted json displayed in log."
+        pctComplete="99"
+        nextStep="end"
+    />
+    
+    
+    
+    
+    
+    
+    <!-- ................................................... End Steps .................................................... -->
+    <!-- success -->
+    <noopStep name="end" pctComplete="100"/>
+    
+    
+    
+    
+    
+    
+    <!-- ............................................... Context Data Defs ................................................ -->
+    <!-- ......... Input Variables ......... -->
+    <!-- any Data Object in reachengine that has a valid metadata object as an association -->
+    <contextDataDef name="asset"            dataType="Data Object"  required="true"/>
+    
+    <!-- ......... Return Variable ......... -->
+    <!-- json with all metadata fields and multi picklists formatted correctly (string and bar separated) -->
+    <contextDataDef name="jsonMetadata"     dataType="JSON"         defaultDataExpression="{}"/>
+    
+    
+    <!-- Default Data Defs -->
+    <contextDataDef name="collections" 		dataType="String"		multiple="true" 		defaultDataExpression="${asset.collectionMemberships.![collection]}"/>
+    <contextDataDef name="collectionString" dataType="String"		defaultDataExpression="${#joinElements(asset.collectionMemberships.![collection], '|')}"/>
+    
+    
+    <!-- ........ System Variables ......... -->
+    <contextDataDef name="systemApiKey" dataType="String" defaultDataExpression="${#sysconfig('ReachEngineAPI.systemUserApiKey')}"/>
+    <!-- the url to access the reachengine UI (http://ip:port) -->
+    <contextDataDef name="reachUrl"         dataType="String"       defaultDataExpression="${#sysconfig('ReachEngineAPI.reachEngineURL')}"/>
+</workflow>

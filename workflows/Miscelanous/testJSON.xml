@@ -1,0 +1,43 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="testJSON"
+        name="Create JSON"
+        executionLabelExpression="Create JSON from ${subject.name} "
+        description=""
+        subjectDOClassName="VideoAssetMaster"
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion=""
+        resultDataDef=""
+>
+
+    <initialStepName>createJSON</initialStepName>
+
+    <groovyStep name="createJSON"
+                resultDataDef="resultJSON"
+                nextStep="end">
+        <script>
+            <![CDATA[
+
+                import java.util.*
+
+                Map<String,Object> map = new HashMap<>()
+                map.put( "name", sourceFile.name )
+                map.put( "duration", sourceFile.durationhhmmssff )
+
+                return map
+
+
+            ]]>
+        </script>
+    </groovyStep>
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourceFile" dataType="Data Object" defaultDataExpression="${subject}" />
+    <contextDataDef name="resultJSON" dataType="JSON" />
+
+</workflow>

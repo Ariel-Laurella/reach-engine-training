@@ -1,0 +1,394 @@
+<workflow
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+	id="hallmarkLabsVideoDelivery"
+	name="Prepare and Deliver Content To Hallmark Labs"
+	executionLabelExpression="Prepare and Deliver to Hallmark Labs | ${houseCode}"
+	description="Last updated by IMT - December 2019"
+	subjectDOClassName="VideoAssetMaster"
+	deadlineExpression=""
+	subjectQualifierExpression=""
+	sdkVersion="4.2"
+	resultDataDef="deliverySuccess"
+>
+	<initialStepName>Collect Captions</initialStepName>
+
+	<executeSubflowStep name="Collect Captions"
+		targetWorkflowId="gatherLabsCaptions"
+		resultDataDef="labsCaptionsJson"
+		pctComplete="5"
+		nextStep="Collect Labs Images"
+	>
+		<subflowContextDataMapping parentDataDef="houseCode" subflowDataDef="houseCode"/>
+	</executeSubflowStep>
+
+	<executeSubflowStep name="Collect Labs Images"
+		targetWorkflowId="gatherLabsImages"
+		resultDataDef="labsImagesJson"
+		pctComplete="10"
+		nextStep="identify thumbnail for backlot"
+	>
+		<subflowContextDataMapping parentDataDef="houseCode" subflowDataDef="houseCode"/>
+	</executeSubflowStep>
+
+  <groovyStep name="identify thumbnail for backlot"
+	executionLabelExpression="Finding the image to use for the backlot thumbnail"
+	resultDataDef="thumbnailImageIndex"
+	>
+	<transition condition="${thumbnailImageIndex == 999}">
+	  <targetStepName>fail could not find thumbnail</targetStepName>
+	</transition>
+	<transition condition="${true}">
+	  <targetStepName>check for archived video content</targetStepName>
+	</transition>
+	<script>
+	  <![CDATA[
+import groovy.json.JsonSlurper
+
+def slurper = new JsonSlurper()
+Map[] imagesInfo = slurper.parseText(labsImagesJson.toString())
+def imageCounter = 0
+for ( def image in imagesInfo){
+	if ( image.type == "16x9_title" ){
+		return imageCounter
+	}
+	imageCounter++
+}
+return 999
+	  ]]>
+	</script>
+  </groovyStep>
+
+	<noopStep name="check for archived video content"
+		executionLabelExpression="Content Archived | ${subject.mezzanine.truncatedFlag}"
+	>
+		<transition condition="${subject.mezzanine.truncatedFlag == true}">
+			<targetStepName>restore asset</targetStepName>
+		</transition>
+		<transition condition="${subject.metadata.aspectRatio == null}">
+			<targetStepName>get video tech details</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>Check Audio Channel Map</targetStepName>
+		</transition>
+	</noopStep>
+
+	<executeSubflowStep name="restore asset"
+		targetWorkflowId="storageManagerRestoreAssetMaster"
+		pctComplete="10"
+		nextStep="set content was archived"
+	/>
+
+	<setContextData name="set content was archived"
+		executionLabelExpression="Setting value to remember that content was archived"
+		targetDataDef="contentWasArchived"
+		valueExpression="true"
+	>
+		<transition condition="${subject.metadata.aspectRatio == null}">
+			<targetStepName>get video tech details</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>Check Audio Channel Map</targetStepName>
+		</transition>
+	</setContextData>
+
+	<executeSubflowStep name="get video tech details"
+		executionLabelExpression="Getting Tech Details for Video"
+		targetWorkflowId="getVideoTechDetails"
+		nextStep="Check Audio Channel Map"
+	/>
+
+	<executeSubflowStep name="Check Audio Channel Map"
+		targetWorkflowId="checkAudioChannelMap"
+		resultDataDef="stereoChannels"
+		nextStep="watermark video for delivery"
+	>
+		<subflowContextDataMapping parentDataDef="audioChannelMapLabel" subflowDataDef="audioChannelMapLabel"/>
+	</executeSubflowStep>
+
+	<convertVideoStep name="watermark video for delivery"
+		executionLabelExpression="Watermarking video for Labs"
+		mediaConversionTemplateExpression="Create MP4"
+		sourceFileExpression="${sourceVideo}"
+		resultDataDef="watermarkedVideo"
+		pctComplete="35"
+		nextStep="get video md5 value"
+	>
+		<conversionParam name="Left Audio Channel">${stereoChannels[0]}</conversionParam>
+		<conversionParam name="Right Audio Channel">${stereoChannels[1]}</conversionParam>
+		<conversionParam name="UUID">${uuid}</conversionParam>
+	</convertVideoStep>
+
+
+	<runCommandStep name="get video md5 value"
+		executablePathExpression="/usr/bin/md5sum"
+		stdoutDataDef="videoMD5Return"
+		nextStep="split md5 value"
+	>
+		<arg>${watermarkedVideo.absolutePath}</arg>
+	</runCommandStep>
+
+	<setContextData name="split md5 value"
+		targetDataDef="videoMD5ReturnParts"
+		valueExpression="${#splitString(videoMD5Return, ' ', true, true)}"
+		nextStep="put actual MD5 in correct data def"
+	/>
+
+	<setContextData name="put actual MD5 in correct data def"
+		targetDataDef="videoMD5Value"
+		valueExpression="${videoMD5ReturnParts[0]}"
+		nextStep="get video filename"
+	/>
+
+	<setContextData name="get video filename"
+		targetDataDef="videoFilename"
+		valueExpression="${#filename(watermarkedVideo)}"
+		nextStep="create labs manifest"
+	/>
+
+	<executeSubflowStep name="create labs manifest"
+		targetWorkflowId="createLabsManifest"
+		resultDataDef="labsManifest"
+		nextStep="parse labs manifest file to json"
+	>
+		<subflowContextDataMapping parentDataDef="videoDeliveryFileName"	subflowDataDef="videoFileName"/>
+		<subflowContextDataMapping parentDataDef="videoMD5Value"			subflowDataDef="videoChecksum"/>
+		<subflowContextDataMapping parentDataDef="uuid"						subflowDataDef="uuid"/>
+		<subflowContextDataMapping parentDataDef="labsCaptionsJson"			subflowDataDef="labsCaptionsJson"/>
+		<subflowContextDataMapping parentDataDef="labsImagesJson"			subflowDataDef="labsImagesJson"/>
+		<subflowContextDataMapping parentDataDef="videoDuration"			subflowDataDef="durationSeconds"/>
+		<subflowContextDataMapping parentDataDef="houseCode"				subflowDataDef="houseCode"/>
+		<subflowContextDataMapping parentDataDef="overrideTitleClass"		subflowDataDef="overrideTitleClass"/>
+	</executeSubflowStep>
+
+	<groovyStep name="parse labs manifest file to json"
+	  resultDataDef="labsJSONPayload"
+	  nextStep="set backlot manfiest data defs"
+	  >
+	  <script>
+		<![CDATA[
+		import groovy.json.JsonSlurper
+
+		File theCreatedJSON = new File(labsManifest.absolutePath)
+		def slurper = new JsonSlurper()
+
+		return slurper.parse(theCreatedJSON)
+		]]>
+	  </script>
+	</groovyStep>
+
+  <setContextData name="set backlot manfiest data defs"
+	executionLabelExpression="Setting backlot manifest data defs"
+	nextStep="write backlot manifest"
+	>
+	<set targetDataDef="captionsFilename" valueExpression="${labsCaptionsJson.get('newFilename').asText()}"/>
+    <set targetDataDef="captionsFilePath" valueExpression="${labsCaptionsJson.get('sourceFilePath').asText()}"/>
+
+<!-- TODO check value of posterUrl and posterData  -->
+	<set targetDataDef="posterUrl" valueExpression="https://s3-us-west-2.amazonaws.com/svodimage/${labsImagesJson[thumbnailImageIndex].get('newFilename').asText()}" />
+	<set targetDataDef="posterData"  valueExpression="{'posterUrl':'${posterUrl}', 'width':1920, 'height':1080}"/>
+
+
+<!-- TODO check if thumbnailExtension can be deleted  -->
+	<set targetDataDef="thumbnailExtension" valueExpression="${#extension(labsImagesJson[thumbnailImageIndex].get('newFilename').asText())}"/>
+
+
+  </setContextData>
+
+
+
+
+ <executeSubflowStep name="delivery content to brightcove"
+					 targetWorkflowId="SendVideoToBrightcove"
+					 resultDataDef="deliveryResult"
+					 executionLabelExpression="delivering content to brigthcove"
+					 nextStep="delete watermarked video" >
+	 <subflowContextDataMapping parentDataDef="title"		         subflowDataDef="uploadName"/>
+	 <subflowContextDataMapping parentDataDef="houseCode"            subflowDataDef="houseCode"/>
+	 <subflowContextDataMapping parentDataDef="watermarkedVideo"	 subflowDataDef="videoToUpload"/>
+	 <subflowContextDataMapping parentDataDef="captionsFilePath"     subflowDataDef="captionsPathToUpload"/>
+	 <subflowContextDataMapping parentDataDef="posterData"           subflowDataDef="posterData"/>
+	 <subflowContextDataMapping parentDataDef="uploadRateMBps"       subflowDataDef="uploadRateMBps"/>
+
+ </executeSubflowStep>
+
+	<deleteFileStep name="delete watermarked video"
+		sourceFilesExpression="${watermarkedVideo}"
+		nextStep="deliver images to labs bucket"
+	/>
+
+
+<!-- TODO check if it is better to move deliver images to labs bucket before delivery to brightcove -->
+
+	<runCommandStep name="deliver images to labs bucket"
+		executionLabelExpression="Delivering Image: ${labsImagesJson[imageCounter].get('type').asText()}"
+		executablePathExpression="/usr/local/bin/aws"
+		pctComplete="90"
+		nextStep="increment image counter"
+	>
+		<arg>s3</arg>
+		<arg>cp</arg>
+		<arg>${labsImagesJson[imageCounter].get('sourceFilePath').asText()}</arg>
+		<arg>s3://svodimage/${labsImagesJson[imageCounter].get('newFilename').asText()}</arg>
+		<arg>--profile</arg>
+		<arg>default</arg>
+		<arg>--acl</arg>
+		<arg>public-read</arg>
+	</runCommandStep>
+
+ <!-- production bucket	update with run command equivalent. Copy step adds '_1' '_2' to re-delivered files.
+	<copyFileStep name="deliver images to labs bucket"
+		executionLabelExpression="Delivering Image: ${labsImagesJson[imageCounter].get('type').asText()}"
+		targetDirectoryExpression="s3:hmklabs-hmnow-dev-us-west-2-appdata-public:/crown-media/"
+		targetFilenameExpression="${labsImagesJson[imageCounter].get('newFilename').asText()}"
+		sourceFileExpression="${labsImagesJson[imageCounter].get('sourceFilePath').asText()}"
+		pctComplete="90"
+		nextStep="increment image counter"
+	/>
+-->
+
+	<setContextData name="increment image counter"
+		executionLabelExpression="Incrementing counter: ${imageCounter}"
+		targetDataDef="imageCounter"
+		valueExpression="${imageCounter + 1}"
+		devStep="true"
+	>
+		<transition condition="${imageCounter &lt; labsImagesJson.size()}">
+			<targetStepName>deliver images to labs bucket</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>poll backlot API for job completion</targetStepName>
+		</transition>
+	</setContextData>
+
+	<!--
+  <groovyStep name="poll backlot API for job completion"
+	resultDataDef="backlotProcessingStatuses"
+	executionLabelExpression="Checking processing for external_id ${uuid}"
+	groovyFilename="groovy/CheckBacklotUpload.groovy"
+  >
+	<transition condition="${backlotProcessingStatuses[0] == 'failure'}">
+	  <targetStepName>processing failed in backlot</targetStepName>
+	</transition>
+	<transition condition="${true}">
+	  <targetStepName>post manifest to labs CMS</targetStepName>
+	</transition>
+  </groovyStep>
+-->
+
+  <submitHttpStep name="post manifest to labs CMS"
+        executionLabelExpression="Sending Payload to Labs CMS"
+        requestMethodExpression="POST"
+        responseCodeDataDef="labsApiResponseCode"
+        responsePayloadDataDef="labsApiResponsePayload"
+        urlExpression="${labsApiUrl}"
+        >
+        <exception-transition type="WorkflowException">
+            <targetStepName>set delivery attempt</targetStepName>
+        </exception-transition>
+        <transition condition="${labsApiResponseCode &gt; 499}">
+            <targetStepName>set delivery attempt</targetStepName>
+        </transition>
+        <transition condition="${labsApiResponseCode == 200}">
+            <targetStepName>end</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>api command rejected</targetStepName>
+        </transition>
+        <requestPayloadItem name="body">${labsJSONPayload}</requestPayloadItem>
+        <requestHeader name="x-api-key">${labsApiKey}</requestHeader>
+        <requestHeader name="x-api-secret">${labsApiSecret}</requestHeader>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+    </submitHttpStep>
+
+    <setContextData name="set delivery attempt"
+        targetDataDef="deliveryAttempt"
+        valueExpression="${deliveryAttempt + 1}"
+        >
+        <transition condition="${deliveryAttempt &lt; 3}">
+            <targetStepName>wait to try again</targetStepName>
+        </transition>
+        <transition condition="${deliveryAttempt == 3}">
+            <targetStepName>api command rejected</targetStepName>
+        </transition>
+    </setContextData>
+    
+    <delayStep name="wait to try again"
+        delaySecondsExpression="30"
+        nextStep="post manifest to labs CMS"
+        />
+
+	<!-- STEPS: termination -->
+	<failWorkflowStep reasonExpression="api command rejected" name="api command rejected"/>
+
+  	<failWorkflowStep name="processing failed in backlot"
+	  executionLabelExpression="The content failed processing in backlot. Message: ${backlotProcessingStatuses[1]}"
+	  reasonExpression="The content failed processing in backlot. Message: ${backlotProcessingStatuses[1]}"
+	  />
+
+  <failWorkflowStep name="fail could not find thumbnail" reasonExpression="fail could not find thumbnail"/>
+
+	<noopStep name="end"/>
+
+
+	<!-- DATA DEFS -->
+  <contextDataDef name="environment" dataType="String"	defaultDataExpression="${#sysconfig('reachEngine.environment')}"/>
+
+	<!-- Video Data Defs -->
+	<contextDataDef name="videoDeliveryFileName"	dataType="String"	defaultDataExpression="${uuid}.mp4"/>
+	<contextDataDef name="videoDuration"			dataType="Double"	defaultDataExpression="${subject.mezzanine.duration}"/>
+	<contextDataDef name="audioChannelMapLabel"		dataType="String"	defaultDataExpression="${subject.metadata.audioChannelConfiguration == null ? 'Stereo' : #picklistLabel('audioChannelConfiguration', subject.metadata.audioChannelConfiguration)}"/>
+	<contextDataDef name="title"					dataType="String"	defaultDataExpression="${#picklistLabel('title', subject.metadata.title)}"/>
+	<contextDataDef name="watermarkedVideo"			dataType="File"		/>
+	<contextDataDef name="videoMD5Value"			dataType="String"	/>
+	<contextDataDef name="videoMD5Return"			dataType="String"	/>
+	<contextDataDef name="videoMD5ReturnParts"		dataType="String"	multiple="true"/>
+	<contextDataDef name="videoFilename"			dataType="String"	/>
+	<contextDataDef name="sourceVideo"				dataType="File"		defaultDataExpression="${subject.mezzanine.file}"/>
+
+	<!-- Labs API -->
+  	<contextDataDef name="labsApiUrl"				dataType="String" defaultDataExpression="${environment == 'DEV' ? 'https://api-dev.hmnow.com/film-api/ingestion/content?force=1' : 'https://api2.hmnow.com/film-api/ingestion/content?force=1'}"/>
+	<contextDataDef name="labsApiResponseCode"		dataType="Integer"	/>
+	<contextDataDef name="labsApiResponsePayload"	dataType="String"	/>
+	<contextDataDef name="labsJSONPayload"			dataType="JSON"		defaultDataExpression="{}"/>
+  	<contextDataDef name="labsManifest"				dataType="File"		/>
+	<contextDataDef name="deliveryAttempt"          dataType="Integer"  defaultDataExpression="0"/>
+  	<contextDataDef name="labsApiKey"				dataType="String"	defaultDataExpression="${#sysconfig('hallmarkLabs.cms.apiKey')}" hidden="true"/>
+  	<contextDataDef name="labsApiSecret"			dataType="String"	defaultDataExpression="${#sysconfig('hallmarkLabs.cms.secret')}" hidden="true"/>
+
+	<contextDataDef name="groovyReturn"				dataType="Boolean"	/>
+
+  	<contextDataDef name="thumbnailImageIndex"		dataType="Integer">
+		<description>This is the index of the json in the labsImageJson to use for the thumbnail</description>
+	</contextDataDef>
+
+	<!-- Brightcove delivery dataDefs	-->
+
+<!-- TODO captionsFile became captionsFilePath because its easier to obtain it in Parent -->
+	<contextDataDef name="captionsFilePath"         dataType="String"   />
+
+	<contextDataDef name="uploadRateMBps"           dataType="Integer"  defaultDataExpression="25" />
+	<contextDataDef name="deliveryResult"           dataType="String"   />
+
+
+<!-- TODO revisit poster data expression -->
+
+	<contextDataDef name="posterData"               dataType="JSON"     defaultDataExpression="{'posterUrl':'https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg', 'width':1920, 'height':1080}"/>
+
+<!-- TODO create a posterUrl variable -->
+	<contextDataDef name="posterUrl" dataType="String" />
+
+
+
+
+	<contextDataDef name="stereoChannels"			dataType="Integer"	multiple="true"/>
+	<contextDataDef name="contentWasArchived"		dataType="Boolean"	/>
+	<contextDataDef name="labsCaptionsJson"			dataType="JSON"		/>
+	<contextDataDef name="labsImagesJson"			dataType="JSON"		multiple="true"/>
+	<contextDataDef name="imageCounter"				dataType="Integer"	defaultDataExpression="0"/>
+	<contextDataDef name="houseCode"				dataType="String"	defaultDataExpression="${subject.metadata.houseCode}" userInput="true" label="Override House Code"/>
+	<contextDataDef name="overrideTitleClass"		dataType="Boolean"	defaultDataExpression="false" label="Override Title Class?" userInput="true"/>
+	<contextDataDef name="uuid"						dataType="String"	defaultDataExpression="${#uuid().toString()}"/>
+
+</workflow>

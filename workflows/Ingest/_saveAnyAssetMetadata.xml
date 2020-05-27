@@ -1,0 +1,374 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2018 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+	id="_saveAnyAssetMetadata"
+	name="Save Any Asset Metadata"
+	executionLabelExpression="Save Any Asset Metadata | Asset: ${asset.name}"
+	subjectDOClassName=""
+	showInUserInterface="false"
+	sdkVersion="5.21"
+	>
+	
+	<initialStepName>combine form data with extra data</initialStepName>
+	
+	
+	<!-- .............................................. Combine Data Steps ................................................ -->
+	<groovyStep name="combine form data with extra data"
+		resultDataDef="allDataJson"
+		pctComplete="15"
+		>
+		<transition condition="${allDataJson.get('error') != null}">
+			<targetStepName>combine data error</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>separate into combined groupings</targetStepName>
+		</transition>
+		
+		<script>
+		<![CDATA[
+			import groovy.json.*
+			import org.slf4j.Logger
+			import org.slf4j.LoggerFactory
+			
+			Logger log = LoggerFactory.getLogger("com.levelsbeyond.plugin.workflow");
+			
+			try{
+				Map allDataJson = [:]
+				allDataJson.put("metadata", [:])
+				allDataJson.put("links", [])
+				allDataJson.put("categories", [])
+				
+				// form extraction
+				if(metadataForm != null && metadataForm.toString() != "null" && metadataForm.toString() != "{}"){
+					Map formData = new JsonSlurper().parseText(metadataForm.toString())
+					
+					if(metadataFormType == "access"){
+						for(category in formData.metadataCategories){
+							allDataJson.categories.push("[AssetCategory." + category.id + "]")
+						}
+						
+						formData.remove("metadataCategories")
+						formData.remove("metadataFormId")
+						
+						formData.each{ key, value ->
+							allDataJson.metadata.put(key, value)
+						}
+					}
+					else if (metadataFormType == "panel"){
+						for(category in formData.categories){
+							allDataJson.categories.push("[AssetCategory." + category.replaceAll('"','') + "]")
+						}
+						
+						formData.metadata.each{ key, value ->
+							allDataJson.metadata.put(key, value)
+						}
+					}
+					else{
+						log.warn("metadataFormType (${metadataFormType}) is invalid. Skipping form data...")
+					}
+				}
+				
+				// separate links
+				Set linkKeys = []
+				allDataJson.metadata.each{ key, value ->
+					if(value instanceof Map){
+						if(value.title != null && value.url != null){
+							Map linkMap = [propertyName: key, linkInfo: value]
+							allDataJson.links.push(linkMap)
+							linkKeys.add(key)
+						}
+					}
+				}
+				for (key in linkKeys){
+					allDataJson.metadata.remove(key)
+				}
+				
+				// combine form and non-form data
+				Map customMetadata = new JsonSlurper().parseText(jsonMetadata.toString())
+				customMetadata.each{ key, value ->
+					allDataJson.metadata.put(key, value)
+				}
+				for(linkMap in linkMetadata){
+					allDataJson.links.push(new JsonSlurper().parseText(linkMap.toString()))
+				}
+				for(category in categories){
+					allDataJson.categories.push(category.toString())
+				}
+				
+				// return everything combined
+				return allDataJson
+			}
+			catch(Exception e){
+				log.error("combining metadata error >>> ${e}")
+				return new JsonSlurper().parseText('{"error":"could not combine data"}')
+			}
+		]]>
+		</script>
+	</groovyStep>
+	
+	
+	<noopStep name="combine data error"
+		executionLabelExpression="could not combine data. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>error combining metadata</targetStepName>
+		</transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<setContextData name="separate into combined groupings"
+		executionLabelExpression="setting combinedMetadata, combinedLinkMetadata, and combinedCategories"
+		devStep="true"
+		pctComplete="20"
+		nextStep="check what to save"
+		>
+		<set targetDataDef="combinedMetadata">${allDataJson.get('metadata')}</set>
+		<set targetDataDef="combinedLinkMetadata">${allDataJson.get('links')}</set>
+		<set targetDataDef="combinedCategories">${allDataJson.get('categories')}</set>
+	</setContextData>
+	
+
+	<!-- ................................................ Set Data Steps .................................................. -->
+	<noopStep name="check what to save"
+		executionLabelExpression="non-link metadata? ${combinedMetadata != null AND !combinedMetadata.toString().equals('{}')} | link metadata? ${combinedLinkMetadata != null AND combinedLinkMetadata.size() &gt; 0} | category objects? ${combinedCategories != null AND combinedCategories.size() &gt; 0} | category names? ${categoryNames != null AND categoryNames.size() &gt; 0} | collections? ${collections != null AND collections.size() &gt; 0}"
+		pctComplete="25"
+		>
+		<transition condition="${combinedMetadata != null AND !combinedMetadata.toString().equals('{}')}">
+			<targetStepName>save non link metadata</targetStepName>
+		</transition>
+		<transition condition="${combinedLinkMetadata != null AND combinedLinkMetadata.size() &gt; 0}">
+			<targetStepName>save link metadata</targetStepName>
+		</transition>
+		<transition condition="${combinedCategories != null AND combinedCategories.size() &gt; 0}">
+			<targetStepName>save categories by object</targetStepName>
+		</transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<saveDataObjectStep name="save non link metadata"
+		dataObjectExpression="${asset.metadata}"
+		jsonValuesDataDef="combinedMetadata"
+		executionLabelExpression="save non-link metadata on asset from dataDef &quot;combinedMetadata&quot;"
+		pctComplete="30"
+		>
+		<transition condition="${combinedLinkMetadata != null AND combinedLinkMetadata.size() &gt; 0}">
+			<targetStepName>save link metadata</targetStepName>
+		</transition>
+		<transition condition="${combinedCategories != null AND combinedCategories.size() &gt; 0}">
+			<targetStepName>save categories by object</targetStepName>
+		</transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</saveDataObjectStep>
+	
+	
+	<executeSubflowStep name="save link metadata"
+		targetWorkflowId="_saveAssetMetadataLink"
+		subjectChangePath="${combinedLinkMetadata}"
+		subflowTargetDataDef="linkJson"
+		executionLabelExpression="save link metadata on asset from dataDef &quot;combinedLinkMetadata&quot;"
+		pctComplete="50"
+		>
+		<transition condition="${combinedCategories != null AND combinedCategories.size() &gt; 0}">
+			<targetStepName>save categories by object</targetStepName>
+		</transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<subflowContextDataMapping parentDataDef="asset"  subflowDataDef="asset"/>
+		<subflowContextDataMapping parentDataDef="failOnError"  subflowDataDef="failOnError"/>
+	</executeSubflowStep>
+	
+	
+	<nimbus:changeMetaCategoryStep name="save categories by object"
+		targetObjectExpression="${asset}"
+		executionLabelExpression="save categories on asset from dataDef &quot;combinedCategories&quot;"
+		pctComplete="70"
+		>
+		<exception-transition type="WorkflowException">
+			<targetStepName>category object error</targetStepName>
+		</exception-transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<nimbus:addCategory>${combinedCategories}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+	
+	
+	<noopStep name="category object error"
+		executionLabelExpression="could not save categories. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>error saving categories</targetStepName>
+		</transition>
+		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
+			<targetStepName>save categories by name</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<nimbus:changeMetaCategoryStep name="save categories by name"
+		targetObjectExpression="${asset}"
+		executionLabelExpression="save categories on asset from dataDef &quot;categoryNames&quot;"
+		pctComplete="80"
+		>
+		<exception-transition type="WorkflowException">
+			<targetStepName>category name error</targetStepName>
+		</exception-transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<nimbus:addCategory>${categoryNames}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+	
+	
+	<noopStep name="category name error"
+		executionLabelExpression="could not save categories. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>error saving categories</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<executeSubflowStep name="add asset to collections"
+		targetWorkflowId="_addAnyAssetToCollection"
+		subjectChangePath="${collections}"
+		subflowTargetDataDef="collection"
+		executionLabelExpression="save asset to collections from dataDef &quot;collections&quot;"
+		pctComplete="99"
+		nextStep="end"
+		>
+		<subflowContextDataMapping parentDataDef="asset" subflowDataDef="asset"/>
+	</executeSubflowStep>
+	
+	
+	<!-- ................................................... End Steps .................................................... -->
+	<!-- success -->
+	<noopStep name="end"	pctComplete="100"/>
+	
+	<!-- fail -->
+	<failWorkflowStep name="error combining metadata" 
+		reasonExpression="error combining metadata"
+		executionLabelExpression="error combining metadata"
+		/>
+	
+	
+	<failWorkflowStep name="error saving categories" 
+		reasonExpression="Error saving categories. Check workflow steps for errors."
+		executionLabelExpression="Error saving categories. Check workflow steps for errors."
+		/>
+	
+	
+	<!-- ............................................... Context Data Defs ................................................ -->
+	<!-- .......... Input Variables .......... -->
+	<contextDataDef name="asset" 			    dataType="Data Object"/>
+	<contextDataDef name="failOnError"          dataType="Boolean"          defaultDataExpression="${#sysconfig('workflows.default.metadata.failOnError') ?: true}"/>
+	<contextDataDef name="categories" 		    dataType="Data Object"	    multiple="true"/>
+	<contextDataDef name="categoryNames"        dataType="String"           multiple="true"/>
+	<contextDataDef name="collections" 		    dataType="Data Object"	    multiple="true"/>
+	<contextDataDef name="metadataForm"         dataType="MetadataForm"/>
+	<contextDataDef name="jsonMetadata"         dataType="JSON">
+		<description>
+			Single JSON where:
+				Keys are metadata property names
+				Values are what to set the matching property to on this asset
+		</description>
+	</contextDataDef>
+	<contextDataDef name="linkMetadata"         dataType="JSON"             multiple="true">
+		<description>
+			Array of JSONs where:
+				Each JSON has 2 Keys (propertyName and linkInfo):
+					propertyName's value is a metadata property name of type link
+					linkInfo's value is a JSON with 2 keys (title and url):
+						title's value is the display name for the link
+						url's value is the url to open when the title is clicked on
+		</description>
+	</contextDataDef>
+	<contextDataDef name="metadataFormType"     dataType="String"           defaultDataExpression="access">
+		<description>
+			TEMPORARY!!! (Forms will be standardized to the same format in the future)
+				Valid types = "access" or "panel"
+		</description>
+	</contextDataDef>
+	
+	<!-- ....... Processing Variables ........ -->
+	<contextDataDef name="allDataJson"          dataType="JSON"/>
+	<contextDataDef name="combinedCategories"   dataType="Data Object"      multiple="true"/>
+	<contextDataDef name="combinedMetadata"     dataType="JSON"/>
+	<contextDataDef name="combinedLinkMetadata" dataType="JSON"             multiple="true"/>
+	
+</workflow>

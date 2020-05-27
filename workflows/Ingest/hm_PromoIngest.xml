@@ -1,0 +1,92 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.reachengine.com/schema/latest/studio.xsd"
+    id="hm_PromoIngest"
+    name="Ingest Promo and Add Metadata"
+    executionLabelExpression="Promo File Ingest | File: ${fileToIngest.name}"
+    description=""
+    subjectDOClassName=""
+    subjectQualifierExpression=""
+    deadlineExpression=""
+    showInUserInterface="false"
+    resultDataDef="assetVersion"
+    sdkVersion=""
+    >
+    
+    <initialStepName>ingest file</initialStepName>
+    
+    <executeSubflowStep name="ingest file"
+        targetWorkflowId="hallmarkAnyAssetIngest"
+        subjectChangePath="${fileToIngest}"
+        subflowTargetDataDef="fileToIngest"
+        resultDataDef="assetVersion"
+        executionLabelExpression="Ingesting ${fileToIngest.name} as ${newAssetName}"
+        nextStep="update video metadata"
+        >
+        <subflowContextDataMapping parentDataDef="fileToIngest"             subflowDataDef="fileToIngest"/>
+        <subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
+        <subflowContextDataMapping parentDataDef="skipMezzanineFlag"        subflowDataDef="skipMezzanineFlag"/>
+        <subflowContextDataMapping parentDataDef="allowDuplicateNamesFlag"  subflowDataDef="allowDuplicateNamesFlag"/>
+        <subflowContextDataMapping parentDataDef="asyncProxiesFlag"         subflowDataDef="asyncProxiesFlag"/>
+    </executeSubflowStep>
+    
+    <executeSubflowStep name="update video metadata"
+        targetWorkflowId="updateVideoAssetMasterMetaFromOAP"
+        subjectChangePath="${assetVersion.masterAsset}"
+        executionLabelExpression="Updating metadata for ${fileToIngest.name}"
+        >
+        <transition condition="true">
+            <targetStepName>set asset metadata to false</targetStepName>
+        </transition>
+    </executeSubflowStep>
+    
+    <saveDataObjectStep name="set asset metadata to false"
+        dataObjectExpression="${assetVersion.masterAsset.metadata}"
+        executionLabelExpression="Setting ${fileToIngest} no metadata flag to false"
+        >
+        <transition condition="true">
+            <targetStepName>update name</targetStepName>
+        </transition>
+        <property name="noMetadataFlag">false</property>
+    </saveDataObjectStep>
+    
+    <saveDataObjectStep name="update name"
+        dataObjectExpression="${assetVersion.masterAsset}"
+        executionLabelExpression="Setting ${newAssetName} as the Name of the asset"
+        >
+        <transition condition="${vantageSubmission}">
+            <targetStepName>delete source file</targetStepName>
+        </transition>
+        <transition condition="true">
+            <targetStepName>end</targetStepName>
+        </transition>
+        <property name="name">${newAssetName}</property>
+    </saveDataObjectStep>
+    
+    <deleteFileStep name="delete source file"
+        sourceFilesExpression="${fileToIngest}"
+        executionLabelExpression="Deleting Source File from ${fileToIngest.absolutePath}"
+        >
+        <transition condition="${true}">
+            <targetStepName>end</targetStepName>
+        </transition>
+    </deleteFileStep>
+    
+    <noopStep name="end"/>
+
+    <!-- user input / passed in ... sent to subflow -->
+    <contextDataDef name="fileToIngest"             dataType="File"         required="true"/>
+    <contextDataDef name="jsonMetadata"             dataType="JSON"         defaultDataExpression="{'noMetadataFlag':'true'}"/>
+    <contextDataDef name="skipMezzanineFlag"        dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="allowDuplicateNamesFlag"  dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="asyncProxiesFlag"         dataType="Boolean"      defaultDataExpression="true"/>
+    <contextDataDef name="newAssetName"             dataType="String"       defaultDataExpression="${#baseFilename(fileToIngest.name)}"/>
+    <contextDataDef name="vantageSubmission"        dataType="Boolean"      defaultDataExpression="false"/>
+    
+    <!-- user input / passed in ... used to set category -->
+    <contextDataDef name="categoryName"             dataType="String"       />
+    
+    <!-- File Data Defs-->
+    <contextDataDef name="assetVersion"             dataType="Data Object"/>
+</workflow>

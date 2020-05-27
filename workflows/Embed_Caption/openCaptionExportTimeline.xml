@@ -1,0 +1,233 @@
+<!--
+~Hallmark Custom Reach Engine Workflow
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+    id="openCaptionExportTimeline"
+    name="Export Video Open Captions"
+    executionLabelExpression="Export OpenCap Video ${nameOfVideo} | Destination: ${ftpDir} | User: ${currentUser}"
+    description=""
+    subjectDOClassName="VideoAssetMaster"
+    deadlineExpression=""
+    showInUserInterface="true"
+    resultDataDef=""
+    group="Export"
+    sdkVersion="4.2"
+	subjectQualifierExpression="${metadata?.categoryNames.indexOf('Promo') != -1}"
+	>
+
+	<initialStepName>check for archived content</initialStepName>
+
+	<noopStep name="check for archived content">
+		<transition condition="${contentArchived}">
+			<targetStepName>restore content</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>check if captions are available</targetStepName>
+		</transition>
+	</noopStep>
+
+	<executeSubflowStep
+		name="restore content"
+		targetWorkflowId="${restoreWorkflowId}"
+		pctComplete="10"
+		>
+		<transition condition="true">
+			<targetStepName>export timeline</targetStepName>
+		</transition>
+	</executeSubflowStep>
+
+	<noopStep name="check if captions are available"
+		executionLabelExpression="Captions for asset are ${captionsLabel}"
+		>
+		<transition condition="${captionsLabel == 'Embedded 608' OR captionsLabel == 'Embedded 608 and 708'}">
+			<targetStepName>export timeline</targetStepName>
+		</transition>
+		<transition condition="${captionsLabel == 'Not Captioned'}">
+			<targetStepName>embed captions</targetStepName>
+		</transition>
+		<transition condition="${captionsLabel == 'Sidecar File Available'}">
+			<targetStepName>embed captions</targetStepName>
+		</transition>
+		<transition condition="${captionsLabel == 'Sidecar File Available'}">
+			<targetStepName>embed captions</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>set caption metadata</targetStepName>
+		</transition>
+	</noopStep>
+
+	<saveDataObjectStep name="set caption metadata"
+		executionLabelExpression="Setting ${videoToEmbed} to 'Not Captioned'"
+		dataObjectExpression="${subject.metadata}"
+		nextStep="update captionsLabel variable"
+		>
+		<property name="closedCaptionInfo">Not Captioned</property>
+	</saveDataObjectStep>
+
+	<setContextData name="update captionsLabel variable"
+		targetDataDef="captionsLabel"
+		valueExpression="Not Captioned"
+		nextStep="embed captions"
+		/>
+
+	<executeSubflowStep name="embed captions"
+		executionLabelExpression="Embedding Captions to ${videoToEmbed}"
+		targetWorkflowId="embedCaptions"
+		resultDataDef="assetVersion"
+		nextStep="set assetVersion file as sourceFile"
+		>
+		<subflowContextDataMapping parentDataDef="deleteAfterEmbed" subflowDataDef="deleteAfterEmbed"/>
+	</executeSubflowStep>
+
+	<setContextData name="set assetVersion file as sourceFile"
+		executionLabelExpression="Setting ${assetVersion.masterAsset.mezzanine.file.absolutePath} as sourceFile"
+		targetDataDef="sourceFile"
+		valueExpression="${assetVersion.masterAsset.mezzanine.file}"
+		nextStep="export timeline"
+		/>
+
+	<startVideoConversion name="export timeline"
+		resultDataDef="vantageJobId"
+		executionLabelExpression="Creating OpenCap Video"
+		sourceFileExpression="${sourceFile}"
+		mediaConversionTemplateExpression="${targetTemplateName}"
+		nextStep="get standard video"
+		pctComplete="30"
+		/>
+
+	<getVideoConversionResult name="get standard video"
+		conversionId="${vantageJobId}"
+		resultKey="Rendition 1"
+		resultDataDef="standardVideo"
+		executionLabelExpression="Getting converted file from nickname 'Rendition 1' Job ID ${vantageJobId}"
+		pctComplete="50"
+		>
+		<transition condition="${true}">
+			<targetStepName>get center cut video</targetStepName>
+		</transition>
+	</getVideoConversionResult>
+
+	<getVideoConversionResult name="get center cut video"
+		conversionId="${vantageJobId}"
+		resultKey="Rendition 2"
+		resultDataDef="centerCutVideo"
+		executionLabelExpression="Getting converted file from nickname 'Rendition 2' Job ID ${vantageJobId}"
+		pctComplete="50"
+		>
+		<transition condition="${true}">
+			<targetStepName>copy standard video to destination</targetStepName>
+		</transition>
+	</getVideoConversionResult>
+
+	<copyFileStep
+		name="copy standard video to destination"
+		executionLabelExpression="Copy transcode result ${centerCutVideo.absolutePath} to ${exportPath.absolutePath})"
+		sourceFileExpression="${standardVideo}"
+		targetDirectoryExpression="${exportPath}"
+		targetFilenameExpression="${nameOfVideo.replaceAll(' ', '_')}_OpenCaptions_${currentUser}.${#extension(standardVideo)}"
+		pctComplete="90"
+		>
+		<transition condition="true">
+			<targetStepName>copy center cut video to destination</targetStepName>
+		</transition>
+	</copyFileStep>
+
+	<copyFileStep
+		name="copy center cut video to destination"
+		executionLabelExpression="Copy transcode result ${centerCutVideo.absolutePath} to ${exportPath.absolutePath})"
+		sourceFileExpression="${centerCutVideo}"
+		targetDirectoryExpression="${exportPath}"
+		targetFilenameExpression="${nameOfVideo.replaceAll(' ', '_')}_OpenCaptionsCenterCut_${currentUser}.${#extension(centerCutVideo)}"
+		pctComplete="90"
+		>
+		<transition condition="true">
+			<targetStepName>delete transcode artifact standard</targetStepName>
+		</transition>
+	</copyFileStep>
+
+	<deleteFileStep
+		name="delete transcode artifact standard"
+		sourceFilesExpression="${standardVideo}"
+		pctComplete="95"
+		executionLabelExpression="Deleting transcode artifact ${standardVideo.absolutePath}"
+		>
+		<transition condition="${true}">
+			<targetStepName>delete transcode artifact center cut</targetStepName>
+		</transition>
+	</deleteFileStep>
+
+	<deleteFileStep
+		name="delete transcode artifact center cut"
+		sourceFilesExpression="${centerCutVideo}"
+		pctComplete="95"
+		executionLabelExpression="Deleting transcode artifact ${centerCutVideo.absolutePath}"
+		>
+		<transition condition="true">
+			<targetStepName>email user</targetStepName>
+		</transition>
+	</deleteFileStep>
+
+	<emailStep name="email user"
+		emailAddressesExpression="${currentEmail}"
+		subjectExpression="[Reach Engine] Export Open Captions ${nameOfVideo} Success"
+		>
+		<body>
+			<![CDATA[
+            Dear ${userFirstName},
+
+            ${nameOfVideo} has been exported with Open Captions to the ${ftpDir} Media Exports location.
+
+            Sincerely,
+            Reach Engine
+
+            Need Help with Reach Engine? Please e-mail this address:
+            mediasupport@crownmedia.com
+
+            ]]>
+		</body>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</emailStep>
+
+	<noopStep name="end"></noopStep>
+
+	<!-- Caption data defs -->
+	<contextDataDef name="nameOfVideo"		dataType="String"	defaultDataExpression="${subject.name}"></contextDataDef>
+	<contextDataDef name="deleteAfterEmbed"		dataType="Boolean" defaultDataExpression="true"/>
+	<contextDataDef name="standardVideo"		dataType="File"/>
+	<contextDataDef name="centerCutVideo"		dataType="File"/>
+	<contextDataDef name="vantageJobId"			dataType="String"/>
+	<contextDataDef name="videoToEmbed"		dataType="String"	defaultDataExpression="${subject.name}"/>
+	<contextDataDef name="captionsValue"        dataType="String"   defaultDataExpression="${subject.metadata.closedCaptionInfo}"/>
+	<contextDataDef name="captionsLabel"        dataType="String"   defaultDataExpression="${#picklistLabel('closedCaptionInfo', captionsValue)}"/>
+	<contextDataDef name="assetVersion"			dataType="Data Object"/>
+	<contextDataDef name="contentArchived"		dataType="Boolean"	defaultDataExpression="${subject.mezzanine.truncatedFlag}"/>
+	<contextDataDef name="exportPathArray"		dataType="String"	defaultDataExpression="${#splitString(exportPath, '/', false, true)}"   multiple="true"/>
+	<contextDataDef name="ftpDir" 				dataType="String"   defaultDataExpression="${exportPathArray[exportPathArray.size()-1]}"/>
+	<contextDataDef name="exportPath"			dataType="String"	userInput="true" required="true" label="Export Location:">
+		<picklist>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/AdSales/" label="Ad Sales"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/AffiliateMarketing/" label="Affiliate Marketing"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/CreativeServices/" label="Creative Services"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/DigitalWeb/" label="Digital Web"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/Marketing/" label="Marketing"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/MediaOps/" label="Media Operations"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/Programming/" label="Programming"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/Publicity/" label="Publicity"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/TechOps/" label="Tech Operations"/>
+			<picklistItem value="/stornext/MediaSAN/Media Ops/MediaExports/Social/" label="Social"/>
+		</picklist>
+	</contextDataDef>
+	<contextDataDef name="restoreWorkflowId"	dataType="String"	defaultDataExpression="${#sysconfig('workflow.default.restoreAssetWorkflowID')}"/>
+	<contextDataDef name="targetTemplateName"	dataType="String"	defaultDataExpression="Open Captions Burn In"/>
+	<contextDataDef name="sourceFile"			dataType="File"		defaultDataExpression="${subject.mezzanine.file}"/>
+	<contextDataDef name="userFirstName"		dataType="String"	defaultDataExpression="${#this.startedBy.firstName}"/>
+	<contextDataDef name="currentUser"			dataType="String"   defaultDataExpression="${#this.startedBy.userName}"/>
+	<contextDataDef name="currentEmail"			dataType="String"   defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+</workflow>

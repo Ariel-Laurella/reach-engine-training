@@ -1,0 +1,341 @@
+<!--
+~Hallmark Custom Reach Engine Workflow
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"    
+    id="createCaptionsForVideo"
+    name="Create Captions for Video"
+    executionLabelExpression="Create Captions for ${subject.name}"
+    description=""
+    subjectDOClassName="VideoAssetMaster"
+    subjectQualifierExpression=""
+    deadlineExpression=""
+    showInUserInterface="false"
+    resultDataDef="captionsFile"
+    sdkVersion="4.2"
+    >
+    
+    <initialStepName>send proxy to s3 bucket</initialStepName>
+
+
+    <!-- Get the proxy file and send to our S3 bucket for captioning -->
+        
+    <runCommandStep name="send proxy to s3 bucket"
+        executionLabelExpression="Sending Proxy to ${s3Bucket}"
+        executablePathExpression="/usr/local/aws/bin/aws"
+        pctComplete="5"
+        nextStep="submit order to rev"
+        >
+        <arg>s3</arg>
+        <arg>cp</arg> 
+        <arg>${proxyFile.absolutePath}</arg>
+        <arg>s3://${s3Bucket}/${newFilename}</arg>
+    </runCommandStep>
+
+    <submitHttpStep name="submit order to rev"
+        executionLabelExpression="submit the order to rev | Duration ${duration}"
+        urlExpression="${placeOrderURL}"
+        responseHeadersDataDef="orderPlacedNVP"
+        responseCodeDataDef="orderPlacedResponseCode"
+        requestMethodExpression="POST"
+        pctComplete="10"
+        >
+        <transition condition="${true}">
+            <targetStepName>extract location of order</targetStepName>
+        </transition>
+        <requestPayloadItem name="body">
+            <![CDATA[
+            {
+    	       "client_ref": "${subject.name}",
+    	       "non_standard_tat_guarantee": "false",
+    	       "caption_options": {
+    		      "inputs": [{
+    			     "video_length_seconds": "${duration}",
+    			     "uri": "urn:s3:[crown-captioning]${newFilename}"
+    		      }],
+    		      "output_file_formats": ["Ttml"]
+    	       }
+            }
+            ]]>
+        </requestPayloadItem>
+        <requestHeader name="Authorization">${authorization}</requestHeader>
+        <requestHeader name="Content-Type">application/json</requestHeader>
+        <requestHeader name="Content-Disposition">attachment; filename="${newFilename}"</requestHeader>
+    </submitHttpStep>
+    
+    <groovyStep name="extract location of order"
+        resultDataDef="orderURL"
+        pctComplete="15"
+        >
+        <transition condition="${orderURL == null}">
+            <targetStepName>fail workflow step</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>print url value</targetStepName>
+        </transition>
+        <script>
+<![CDATA[
+
+for (pair in orderPlacedNVP){
+    String tempName = pair.getName()
+        if (tempName.equals('Location')){
+            return pair.getValue()
+        }
+    }
+return null
+
+]]>
+        </script>
+    </groovyStep>
+    
+    <noopStep name="print url value"
+        executionLabelExpression="Order Location: ${orderURL}"
+        nextStep="get order status"
+        />
+    
+    <submitHttpStep name="get order status"
+        urlExpression="${orderURL}"
+        requestMethodExpression="GET"
+        responsePayloadDataDef="orderStatusXML"
+        responseCodeDataDef="orderStatusResponseCode"
+        continueOnException="true"
+        pctComplete="20"
+        >
+        <transition condition="${orderStatusResponseCode != 200}">
+            <targetStepName>fail workflow step</targetStepName>
+        </transition>
+        <transition condition="${#xpath(orderStatusXML, '/order/status[1]', false).value == 'Complete'}">
+            <targetStepName>send tracking email</targetStepName>
+        </transition>
+        <transition condition="${#xpath(orderStatusXML, '/order/status[1]', false).value == 'In Progress'}">
+            <targetStepName>delay and then check again</targetStepName>
+        </transition>
+        <transition condition="${#xpath(orderStatusXML, '/order/status[1]', false).value == 'Cancelled'}">
+            <targetStepName>fail workflow step</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>status check failure</targetStepName>
+        </transition>
+        <requestHeader name="Authorization">${authorization}</requestHeader>
+        <requestHeader name="Accept">text/xml</requestHeader>
+    </submitHttpStep>
+
+    <delayStep name="delay and then check again"
+        executionLabelExpression="Order status is: ${#xpath(orderStatusXML, '/order/status[1]', false).value}. Waiting 5 minutes before checking again"
+         delaySecondsExpression="300"
+         nextStep="increment status counter"
+        />
+    
+    <setContextData name="increment status counter"
+        executionLabelExpression="Increment status counter | Elapsed wait time ${statusCheckCounter * 5} Minutes "
+        targetDataDef="statusCheckCounter"
+        valueExpression="${statusCheckCounter + 1}"
+        >
+        <transition condition="${statusCheckCounter == 500}">
+            <targetStepName>fail workflow step</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>get order status</targetStepName>
+        </transition>
+    </setContextData>
+    
+    <!-- do this when order is ready get the attachments and put them into an array -->
+    <!--
+    <setContextData name="get attachments as array"
+        targetDataDef="attachmentsArray"
+        valueExpression="${orderStatusJSON.get('attachments').?[get('kind').asText().equals('caption')]}"
+        nextStep="retrieve captions from array"
+        ></setContextData>
+    
+    <executeSubflowStep targetWorkflowId="getRevCaptionsAttachment" name="retrieve captions from array"
+        subjectChangePath="${attachmentsArray}"
+        subflowTargetDataDef="attachmentJSON"
+        nextStep="end"
+        >
+    </executeSubflowStep>
+    -->
+    
+    <emailStep name="send tracking email"
+        emailAddressesExpression="mops_admins@crownmedia.com"
+        subjectExpression="REV Caption Order Placed | ${subject.name}"
+        nextStep="get caption attachment"
+        continueOnException="true"
+        >
+        <body>
+            <![CDATA[
+            
+            Hello,
+            
+            A job for REV has been captioned.
+            
+            Content: ${subject.name}
+            HouseNumber: ${houseCode}
+            User: ${userFirstName} ${userLastName}
+            Username: ${currentUser}
+            REV Cost: $${#xpath(orderStatusXML, '/order/price[1]', false).value}
+            
+            Sincerely,
+            Your happy caption trafficking robot, Reach Engine.
+            
+            ]]>
+        </body>
+    </emailStep>
+    
+    <setContextData name="get caption attachment"
+        executionLabelExpression="Getting Attachment URL: ${#xpath(xmlObject, '/order/attachments[1]/attachment[kind=&quot;caption&quot;]/link[1]/@href', false).value}"
+        targetDataDef="captionAttachmentURL"
+        valueExpression="${#xpath(orderStatusXML, '/order/attachments[1]/attachment[kind=&quot;caption&quot;]/link[1]/@href', false).value}"
+        pctComplete="70"
+        nextStep="retrieve captions"
+        />
+    
+    
+    <!-- 
+    <requestHeader name="Accept">text/x-mcc</requestHeader>
+    -->
+    <submitHttpStep name="retrieve captions"
+        urlExpression="${captionAttachmentURL}"
+        requestMethodExpression="GET"
+        responsePayloadDataDef="captions"
+        responseCodeDataDef="captionsResponseCode"
+        continueOnException="true"
+        pctComplete="75"
+        >
+        <transition condition="${captionsResponseCode != 200}">
+            <targetStepName>fail workflow step</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>print captions to file</targetStepName>
+        </transition>
+        <requestHeader name="Authorization">${authorization}</requestHeader>
+        <requestHeader name="Accept">application/ttml+xml</requestHeader>
+    </submitHttpStep>
+
+    <groovyStep name="print captions to file"
+        resultDataDef="captionsWrittenToFile"
+        pctComplete="90"
+        >
+        <transition condition="${true}">
+            <targetStepName>detect for existing caption file</targetStepName>
+        </transition>
+        <script>
+            <![CDATA[
+            
+            println "********** Start building caption file ( captionsFile.absolutePath ) **********"
+            import java.io.File
+            import java.io.Writer
+            
+            def file = new File ( captionsFile.absolutePath )
+            file.withWriter('UTF-8') { writer ->
+                writer.write( captions )
+            }
+            return true
+            
+            ]]>
+        </script>
+    </groovyStep>
+    
+    <noopStep name="detect for existing caption file">
+        <transition condition="${#fileExists(captionsTargetPath + captionsTargetFilename)}">
+            <targetStepName>delete existing caption file</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>save captions to disk</targetStepName>
+        </transition>
+        
+    </noopStep>
+    
+    <deleteFileStep name="delete existing caption file"
+                    sourceFilesExpression="${captionsTargetPath}${captionsTargetFilename}"
+                    nextStep="save captions to disk"
+                    />
+    
+    <copyFileStep name="save captions to disk"
+        sourceFileExpression="${captionsFile}"
+        targetDirectoryExpression="${captionsTargetPath}"
+        targetFilenameExpression="${captionsTargetFilename}"
+        nextStep="delete proxy from cloud"
+        continueOnException="true"
+        pctComplete="95"
+        />
+
+    <!-- If the file isn't deleted here it will auto-purge in 5 days via bucket policy-->
+
+    <runCommandStep name="delete proxy from cloud"
+        executionLabelExpression="Removing Proxy from ${s3Bucket}"
+        executablePathExpression="/usr/local/aws/bin/aws"
+        continueOnException="true"
+        pctComplete="95"
+        nextStep="end"
+        >
+        <arg>s3</arg>
+        <arg>rm</arg> 
+        <arg>s3://${s3Bucket}/${newFilename}</arg>
+    </runCommandStep>
+
+    <failWorkflowStep name="status check failure"
+        reasonExpression="status check failure"
+        executionLabelExpression="Status back from the check is: ${orderStatusJSON.get('status').asText()}"
+        />
+
+    <failWorkflowStep reasonExpression="fail workflow step" name="fail workflow step"></failWorkflowStep>
+    
+    <noopStep name="end" pctComplete="100"></noopStep>
+
+
+    <!-- REV Data Defs -->
+    <!-- Testing api address -->
+    <!--contextDataDef name="placeOrderURL"            dataType="String"   defaultDataExpression="https://api-sandbox.rev.com/api/v1/orders"/>-->
+    <!-- Production api address -->
+    <contextDataDef name="placeOrderURL"            dataType="String"   defaultDataExpression="https://www.rev.com/api/v1/orders"/>
+    <contextDataDef name="orderPlacedNVP"           dataType="NameValuePair" multiple="true"/>
+    <contextDataDef name="orderPlacedResponseCode"  dataType="Integer"/>
+    <contextDataDef name="uuid"                     dataType="String"   defaultDataExpression="${#uuid().toString()}"/>
+    <contextDataDef name="orderURL"                 dataType="String"/>
+    <contextDataDef name="captionAttachmentURL"     dataType="String"/>
+    <contextDataDef name="groovyReturn"             dataType="String"/>
+    <contextDataDef name="orderStatusJSON"          dataType="JSON"/>
+    <contextDataDef name="orderStatusXML"           dataType="XML"/>
+    <contextDataDef name="orderStatusResponseCode"  dataType="Integer"/>
+    <contextDataDef name="statusCheckCounter"       dataType="Integer"  defaultDataExpression="0"/>
+    <contextDataDef name="attachmentsArray"         dataType="JSON"     defaultDataExpression="[]" multiple="true"/>
+    <contextDataDef name="duration"                 dataType="Integer"  defaultDataExpression="${subject.mezzanine.duration.intValue()}"/>
+    <!-- Testing authorization key -->
+    <!--<contextDataDef name="authorization"            dataType="String"   defaultDataExpression="Rev fa8EZoi7FLwF4VhcFkrIvBink9U:AAAOcw5zNvhdBR9S/vrQkB65i+Y="/>-->
+    <!-- Production authorization key -->
+    <!--<contextDataDef name="authorization"            dataType="String"   defaultDataExpression="Rev sJzkr93ZDcn-Toe-SXMX-m29-2A:oA4FAKnEFDB8UwIS2pBDKtTYtVY="/>-->
+    <contextDataDef name="authorization"            dataType="String"   defaultDataExpression="Rev sJzkr93ZDcn-Toe-SXMX-m29-2A:hSwHAE/P7GZZNVZMjlS6fsoJhD8="/>
+    <!-- retrieve Captions Data defs -->
+    <contextDataDef name="captions"                 dataType="String">
+        <description>This is where the text of the created captions is stored. This does not represent a file.</description>
+    </contextDataDef>
+    <contextDataDef name="captionsResponseCode"     dataType="Integer"/>
+
+
+
+    <!-- S3 data defs -->
+    <contextDataDef name="newFilename"              dataType="String"   defaultDataExpression="${uuid}.${#extension(subject.proxy.file)}"/>
+    <contextDataDef name="s3Bucket"                 dataType="String"   defaultDataExpression="crown-captioning"/>
+    
+    <!-- Content Data Defs-->    
+    <contextDataDef name="sourceFile"               dataType="File"     defaultDataExpression="${subject.mezzanine.file}"/>
+    <contextDataDef name="proxyFile"                dataType="File"     defaultDataExpression="${subject.proxy.file}"/>
+    <contextDataDef name="houseCode"                dataType="String"   defaultDataExpression="${subject.metadata.houseCode}"/>
+
+    <!-- Write Captions to file -->
+    <contextDataDef name="captionsWrittenToFile"    dataType="Boolean"/>
+    <contextDataDef name="captionsFile"             dataType="File"     defaultDataExpression="/stornext/MediaSAN/ReachEngineNoBkup/temp/${uuid}.ttml" />
+    <contextDataDef name="captionsTargetPath"       dataType="String"   defaultDataExpression="/stornext/MediaSAN/Media Ops/Captions/Promos/" />
+    <contextDataDef name="captionsTargetFilename"   dataType="String"   defaultDataExpression="${!houseCode.equals(null)? houseCode : subject.name}.${#extension(captionsFile)}" />
+
+
+
+    <!-- User defs -->
+    <contextDataDef name="userFirstName"            dataType="String"   defaultDataExpression="${#this.startedBy.firstName}"/>
+    <contextDataDef name="userLastName"             dataType="String"   defaultDataExpression="${#this.startedBy.lastName}"/>
+    <contextDataDef name="currentUser"              dataType="String"   defaultDataExpression="${#this.startedBy.userName}"/>
+
+</workflow>

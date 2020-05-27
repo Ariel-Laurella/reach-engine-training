@@ -1,0 +1,196 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns="http://levelsbeyond.com/schema/workflow"
+  xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-4.9.xsd"
+  id="ingestAssetsFromCSV"
+  name="Ingest Assets From CSV"
+  executionLabelExpression="Ingest Assets from CSV"
+  subjectDOClassName=""
+  showInUserInterface="true"
+  resultDataDef="csvResults"
+  deadlineExpression=""
+  sdkVersion="2.3.16"
+>
+
+  <initialStepName>digest uploaded CSV document</initialStepName>
+
+  <groovyStep name="digest uploaded CSV document"
+	executionLabelExpression="Digesting CSV document"
+	resultDataDef="csvResults"
+	nextStep="query for running subflows"
+	>
+	<script>
+	  <![CDATA[
+// First get the lines of the text file.
+import com.levelsbeyond.workflow.sdk.function.GetUUIDFunction
+import com.levelsbeyond.workflow.sdk.function.GetFileExtensionFunction
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+Logger ingestLog = LoggerFactory.getLogger("ingestLog")
+
+
+def digestedCsvRows = new ArrayList()
+def rows = new ArrayList()
+File fileToProcess = new File(csvFile)
+fileToProcess.eachLine {
+	// 'it' is the line in the text file
+	rows.add(it)
+}
+if (skipHeaderRow) {
+	rows.remove(0)
+}
+// start looping over the lines in the CSV
+def rowCounter = 0
+
+for (def row in rows){
+	rowCounter++
+	def singleLineResult = [:]  // this will be the return for this loop execution
+
+	if (row == null || !row.contains(",") ){
+		ingestLog.info( "Ingest Asset From CSV: Found a null row, or a row missing comma to separate values. Skipping row." )
+		continue
+	}
+
+	def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+	if (splitRow.size() != 3){
+		ingestLog.info( "Ingest Asset From CSV: Found a row with incorrect number of values. Expecting 3 values. Skipping row." )
+		ingestLog.info( "Values from row " + splitRow.join("|") )
+		continue
+	}
+
+	else {
+
+	// first let's check if the filename has any special characters
+		if (splitRow[0].contains("[^\\w]")){
+			// the source file does contain some special character, this is bad
+			ingestLog.info( "Ingest Asset From CSV: Found a file with special characters in the filename. Skipping row." )
+			ingestLog.info( "Bad file name " + splitRow[0] )
+			continue
+		}
+
+		File fileFromCsv = new File(filesDirectory + splitRow[0])
+		def nameFromCsv = splitRow[1]
+		def houseCodeFromCsv = splitRow[2]
+
+		singleLineResult.put("file", fileFromCsv.absolutePath)
+		singleLineResult.put("name", splitRow[1])
+		singleLineResult.put("houseCode", splitRow[2])
+		singleLineResult.put("newFileName", GetUUIDFunction.evaluate().toString() + "." + GetFileExtensionFunction.evaluate(fileFromCsv))
+		singleLineResult.put("deleteAfterIngest", deleteAfterIngest)
+	}
+	digestedCsvRows.add(singleLineResult)
+}
+
+return digestedCsvRows
+
+	  ]]>
+	</script>
+  </groovyStep>
+
+<!-- Start queue loop here -->
+	<queryStep
+	  name="query for running subflows"
+	  targetDataObjectClass="WorkflowExecution"
+	  resultDataDef="executingSubflows"
+	  executionLabelExpression="checking for workflows (with id = ${ingestSubflow} that are not in a finished state"
+	  devStep="true">
+		<transition condition="${executingSubflows == null or executingSubflows.size() &lt; queueLimit}">
+			<targetStepName>ready next items</targetStepName>
+		</transition>
+		<transition condition="${ true }">
+			<targetStepName>queue full</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="workflowVersion.workflow.key" op="eq">
+                            <test value="${ingestSubflow}"/>
+                        </condition>
+                        <condition property="status" op="in">
+                            <tests>
+                                <test value="CREATED" />
+                                <test value="QUEUED" />
+                                <test value="EXECUTING" />
+                            </tests>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
+
+
+	<delayStep
+	  name="queue full"
+	  delaySecondsExpression="${queuePollInterval}"
+	  executionLabelExpression="${executingSubflows.size()}/${queueLimit} running subflows (id = ${ingestSubflow}). Waiting ${queuePollInterval} seconds. ${csvResults.size()} remaining items."
+	  nextStep="query for running subflows"
+	  devStep="true"/>
+
+
+	<setContextData
+	  name="ready next items"
+	  targetDataDef="nextCsvResults"
+	  valueExpression="${csvResults.size() &gt; batchSize ? csvResults.subList(0, batchSize) : csvResults.subList(0, csvResults.size()) }"
+	  executionLabelExpression="got ${nextCsvResults.size()} items to process"
+	  nextStep="remove next items from main list"
+	  devStep="true"/>
+
+
+	<groovyStep
+	  name="remove next items from main list"
+	  resultDataDef="csvResults"
+	  executionLabelExpression="remove ${nextCsvResults.size()} items from the main list"
+	  nextStep="ingest files from csv info"
+	  devStep="true">
+		<script>
+			<![CDATA[
+        def success = csvResults.removeAll(nextCsvResults)
+        if (success) {
+            return csvResults
+        } else {
+            return null
+        }
+        ]]>
+		</script>
+	</groovyStep>
+
+	<executeSubflowStep name="ingest files from csv info"
+						executionLabelExpression="Ingesting File From CSV Row"
+						targetWorkflowId="${ingestSubflow}"
+						subjectChangePath="${nextCsvResults}"
+						subflowTargetDataDef="ingestJobInfo"
+						waitForCompletionExpression="false"
+						pctComplete="98">
+		<transition condition="${csvResults.size() &gt; 0}">
+			<targetStepName>query for running subflows</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</executeSubflowStep>
+
+<!-- End queue loop here -->
+
+	<noopStep name="end"/>
+
+	<!-- Queue Loop Defs -->
+	<contextDataDef name="executingSubflows"	dataType="Data Object"	multiple="true"/>
+	<contextDataDef name="queuePollInterval"    dataType="Integer"      defaultDataExpression="30"/>
+	<contextDataDef name="queueLimit"           dataType="Integer"      defaultDataExpression="4"/>
+	<contextDataDef name="batchSize"            dataType="Integer"      defaultDataExpression="1"/>
+	<contextDataDef name="ingestSubflow"		dataType="String"       defaultDataExpression="ingestAssetFromCsvSubflow"/>
+	<contextDataDef name="filesDirectory"		dataType="String"		userInput="true" required="true" label="Directory Containing Files">
+		<description>This is where the files are contained. e.g. /stornext/MediaSAN/Temp/etc...</description>
+	</contextDataDef>
+	<contextDataDef name="submittedCsvFile"		dataType="File"			userInput="true"	required="true"	label="CSV File"/>
+	<contextDataDef name="csvFile"				dataType="String"		defaultDataExpression="${submittedCsvFile.absolutePath}"/>
+	<contextDataDef name="skipHeaderRow"		dataType="Boolean"		userInput="true"	required="true"	label="Skip header row?">
+		<description>To skip first row of CSV set this to 'yes'.</description>
+	</contextDataDef>
+	<contextDataDef name="deleteAfterIngest"	dataType="Boolean"		userInput="true" required="true" label="Delete Source After Ingest?"/>
+	<contextDataDef name="csvResults"			dataType="JSON"			multiple="true"/>
+	<contextDataDef name="nextCsvResults" 		dataType="JSON"			multiple="true"/>
+</workflow>

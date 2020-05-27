@@ -1,0 +1,42 @@
+<workflow
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://levelsbeyond.com/schema/workflow"
+        xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+        xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+        id="testVideoConvert"
+        name="Video Convert"
+        executionLabelExpression="Convert ${subject.name} "
+        description=""
+        subjectDOClassName="VideoAssetMaster"
+        deadlineExpression=""
+        subjectQualifierExpression=""
+        sdkVersion=""
+        resultDataDef=""
+>
+
+    <initialStepName>convertVideo</initialStepName>
+
+    <convertVideoStep name="convertVideo"
+                      sourceFileExpression="${sourceFile}"
+                      resultDataDef="resultFile"
+                      mediaConversionTemplateExpression="Create_MP4"
+                      nextStep="copyToDestination"
+                      >
+
+
+    </convertVideoStep>
+
+    <copyFileStep name="copyToDestination"
+                  sourceFileExpression="${resultFile}"
+                  targetDirectoryExpression="${pathDestination}"
+                  nextStep="end"
+    />
+
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourceFile" dataType="File" defaultDataExpression="${subject.mezzanine.file}" />
+    <contextDataDef name="resultFile" dataType="File" />
+    <contextDataDef name="pathDestination" dataType="Directory" userInput="true" required="true" />
+
+</workflow>
