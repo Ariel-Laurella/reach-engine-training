@@ -1,0 +1,596 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+    id="bulkMetadataCsvUpdateSubflow"
+    name="Bulk Metadata CSV Update Subflow"
+    description=""
+    executionLabelExpression="Bulk Metadata CSV Update Subflow | Updating the asset ${parentObject.name} with the given CSV metadata"
+    showInUserInterface="false"
+    subjectDOClassName=""
+    sdkVersion="">
+
+    <initialStepName>check asset type</initialStepName>
+
+
+
+    <!-- Checking asset type to do correct query -->
+    <noopStep name="check asset type"
+        executionLabelExpression="Asset is of type ${assetType}"
+        >
+        <transition condition="${assetType.equals('timeline')}">
+            <targetStepName>query for timeline</targetStepName>
+        </transition>
+        <transition condition="${assetType.equals('clip')}">
+            <targetStepName>query for clip</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>query for asset master</targetStepName>
+        </transition>
+    </noopStep>
+
+
+
+    <!-- Query for Timeline asset -->
+    <queryStep name="query for timeline"
+        executionLabelExpression="Querying for a Timeline asset with ID of ${assetId}"
+        targetDataObjectClass="Timeline"
+        resultDataDef="parentObject"
+        >
+        <transition condition="${parentObject != null}">
+            <targetStepName>validate metadata</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>no asset found</targetStepName>
+        </transition>
+
+        <criteria>
+            <![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="id" op="eq">
+                            <test value="${assetId}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+        </criteria>
+    </queryStep>
+
+
+
+    <!-- Query for Clip asset -->
+    <queryStep name="query for clip"
+        executionLabelExpression="Querying for a Clip asset with ID of ${assetId}"
+        targetDataObjectClass="Clip"
+        resultDataDef="parentObject"
+        >
+        <transition condition="${parentObject != null}">
+            <targetStepName>validate metadata</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>no asset found</targetStepName>
+        </transition>
+
+        <criteria>
+            <![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="id" op="eq">
+                            <test value="${assetId}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+        </criteria>
+    </queryStep>
+
+
+
+    <!-- Query for Non Timeline asset -->
+    <queryStep name="query for asset master"
+        executionLabelExpression="Querying for a Non-Video asset with ID of ${assetId}"
+        targetDataObjectClass="AssetMaster"
+        resultDataDef="parentObject"
+        >
+        <transition condition="${parentObject != null}">
+            <targetStepName>validate metadata</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>no asset found</targetStepName>
+        </transition>
+
+        <criteria>
+            <![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="id" op="eq">
+                            <test value="${assetId}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+        </criteria>
+    </queryStep>
+
+
+
+    <!-- Validate the metadata -->
+    <groovyStep name="validate metadata"
+        executionLabelExpression="Validating the metdata fields"
+        resultDataDef="validatedMetadata"
+        >
+        <transition condition="${validatedMetadata == null OR validatedMetadata.toString().equals('{}')}">
+            <targetStepName>no metdata fields to set</targetStepName>
+        </transition>
+        <transition condition="${validatedMetadata.get('validMetadata').asText().equals('false')}">
+            <targetStepName>log bad metadata</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>set metadata</targetStepName>
+        </transition>
+
+        <script>
+            <![CDATA[
+                import com.levelsbeyond.workflow.sdk.function.PicklistItemExistsFunction;
+                import com.levelsbeyond.workflow.sdk.function.GetPicklistValueFunction;
+                import groovy.json.*;
+                import java.util.Date;
+
+                def systemMeta = new JsonSlurper().parseText(systemMetadata.toString());
+                def systemMetaArray = systemMeta.get('rows');
+                def badMeta = new JsonSlurper().parseText("{}");
+                badMeta.put('validMetadata', "false");
+                badMeta.put('re-assetId', assetId);
+                def jsonMeta = new JsonSlurper().parseText(metadataJson.toString());
+                def keys = jsonMeta.keySet();
+
+                if(jsonMeta.size() > 2) {
+                    validatedMetadata.put('validMetadata', "true");
+                }
+
+                //Loop through all metadata fields to make sure they exist and are valid
+                for(key in keys) {
+                    if(key != 're-assetType' && key != 're-assetId' && key != 're-assetName' && key != 're-assetCategories' && key != 're-assetCollections' && jsonMeta.get(key) != "" && jsonMeta.get(key) != null) {
+                        def propertyExists = false;
+                        def propertyType = "";
+                        def multiple = false;
+                        for(int i = 0; i < systemMetaArray.size(); i++) {
+                            if(systemMetaArray[i].name.equals(key)) {
+                                propertyExists = true;
+                                propertyType = systemMetaArray[i].type;
+                                multiple = systemMetaArray[i].multiple;
+                                break;
+                            }
+                        }
+
+                        if(propertyExists) {
+                            //Date validation
+                            if(propertyType == "date") {
+                                try {
+                                    if(Date.parse("yyyy-MM-dd", jsonMeta.get(key)) != null) {
+                                        validatedMetadata.put(key, jsonMeta.get(key));
+                                    }
+                                }
+                                catch(Exception e) {
+                                    //println e;
+                                    badMeta.put(key, "This date is not in the correct format. It should be in the format yyyy-MM-dd");
+                                }
+                            }
+                            //Picklist validation
+                            else if(propertyType == "lookup" || propertyType == "picklist") {
+                                if(multiple) {
+                                    //println "multi list: " + jsonMeta.get(key);
+                                    def removeArray = new ArrayList();
+                                    removeArray.add("");
+                                    //println removeArray.toString();
+                                    def labelsArray = jsonMeta.get(key).trim().split("\\|");
+                                    def labels = new ArrayList(Arrays.asList(labelsArray));
+                                    labels.removeAll(removeArray);
+                                    //println labels.toString();
+                                    def values = new ArrayList();
+                                    def badLabels = new ArrayList();
+                                    for(label in labels) {
+                                        //println "Label: " + label;
+                                        if(PicklistItemExistsFunction.picklistItemExists(key, label)) {
+                                            values.add(GetPicklistValueFunction.evaluate(key, label));
+                                        }
+                                        else {
+                                            badLabels.add(label);
+                                        }
+                                    }
+
+                                    if(badLabels.size() > 0) {
+                                        badMeta.put(key, "The following picklist items do not exist " + badLabels.toString());
+                                    }
+                                    if(values.size() > 0) {
+                                        validatedMetadata.put(key, values.join("|"));
+                                    }
+
+                                }
+                                else {
+                                    if(PicklistItemExistsFunction.picklistItemExists(key, jsonMeta.get(key))) {
+                                        validatedMetadata.put(key, GetPicklistValueFunction.evaluate(key, jsonMeta.get(key)));
+                                    }
+                                    else {
+                                        badMeta.put(key, "The following picklist item does not exist " + jsonMeta.get(key));
+                                    }
+                                }
+
+                            }
+                            //Boolean validation
+                            else if(propertyType == "boolean") {
+                                if(jsonMeta.get(key).toString().toLowerCase() != "true" && jsonMeta.get(key).toString().toLowerCase() != "false") {
+                                    badMeta.put(key, "This metadata field did not contain either true or false");
+                                }
+                                else {
+                                    validatedMetadata.put(key, jsonMeta.get(key).toString().toLowerCase());
+                                }
+                            }
+                            //Number validation
+                            else if(propertyType == "double") {
+                                if(jsonMeta.get(key).toString().isInteger() || jsonMeta.get(key).toString().isDouble()) {
+                                    validatedMetadata.put(key, jsonMeta.get(key));
+                                }
+                                else {
+                                    badMeta.put(key, "This metadata field is not a valid integer or double");
+                                }
+                            }
+                            //Link validation
+                            else if(propertyType == "link") {
+
+                            }
+                            //Probably a string so just set it
+                            else {
+                                validatedMetadata.put(key, jsonMeta.get(key));
+                            }
+                        }
+                        else {
+                            badMeta.put(key, "Metadata field does not exist");
+                        }
+                    }
+                }
+
+                //println "BadMeta: " + badMeta.toString();
+                //println "ValidMeta " + validatedMetadata.toString();
+
+
+                //If this is entered that means at least one metadata field is bad and we should fail
+                if(badMeta.size() > 2) {
+                    return badMeta;
+                }
+                else {
+                    return validatedMetadata;
+                }
+
+            ]]>
+        </script>
+    </groovyStep>
+
+
+
+    <!-- Setting the validated metadata -->
+    <saveDataObjectStep name="set metadata"
+        executionLabelExpression="Setting the validated metadata to the asset"
+        dataObjectExpression="${parentObject.metadata}"
+        jsonValuesDataDef="validatedMetadata"
+    >
+        <transition condition="${!metadataJson.get('re-assetName').asText().equals(parentObject.name)}">
+            <targetStepName>set name asset version</targetStepName>
+        </transition>
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0}">
+            <targetStepName>verify categories</targetStepName>
+        </transition>
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>verify collections</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>reindex</targetStepName>
+        </transition>
+    </saveDataObjectStep>
+
+
+
+    <!-- No metadata fields to set -->
+    <noopStep name="no metdata fields to set"
+        executionLabelExpression="No custom metdata fields were found to set"
+        >
+        <transition condition="${!metadataJson.get('re-assetName').asText().equals(parentObject.name)}">
+            <targetStepName>set name asset version</targetStepName>
+        </transition>
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0}">
+            <targetStepName>verify categories</targetStepName>
+        </transition>
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>verify collections</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>reindex</targetStepName>
+        </transition>
+    </noopStep>
+
+
+
+    <!-- Set name on asset version -->
+    <saveDataObjectStep name="set name asset version"
+        executionLabelExpression="Set the name ${metadataJson.get('re-assetName').asText()} on the Asset Version"
+        dataObjectExpression="${parentObject.toString().contains('Timeline') ? parentObject.mainVideoAsset.currentVersion : parentObject.currentVersion}"
+        >
+        <transition condition="${parentObject.toString().contains('Timeline')}">
+            <targetStepName>set name timeline</targetStepName>
+        </transition>
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0}">
+            <targetStepName>verify categories</targetStepName>
+        </transition>
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>verify collections</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>reindex</targetStepName>
+        </transition>
+
+        <property name="name">${metadataJson.get('re-assetName').asText()}</property>
+    </saveDataObjectStep>
+
+
+
+    <!-- Set name on the timeline -->
+    <saveDataObjectStep name="set name timeline"
+        executionLabelExpression="Set the name ${metadataJson.get('re-assetName').asText()} on the Timeline"
+        dataObjectExpression="${parentObject}"
+        >
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0}">
+            <targetStepName>verify categories</targetStepName>
+        </transition>
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>verify collections</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>reindex</targetStepName>
+        </transition>
+
+        <property name="name">${metadataJson.get('re-assetName').asText()}</property>
+    </saveDataObjectStep>
+
+
+
+    <!-- Verify the given categories exist -->
+    <executeSubflowStep name="verify categories"
+        executionLabelExpression="Verifying the given categories exist"
+        targetWorkflowId="verifyCollectionAndCategory"
+        subjectChangePath="${newCategoryNames}"
+        subflowTargetDataDef="categoryName"
+    >
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>verify collections</targetStepName>
+        </transition>
+        <transition condition="${existingCategoryNames != null AND existingCategoryNames != ''}">
+            <targetStepName>remove existing categories</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>add new categories</targetStepName>
+        </transition>
+    </executeSubflowStep>
+
+
+
+    <!-- Verify the given collections exist -->
+    <executeSubflowStep name="verify collections"
+        executionLabelExpression="Verifying the given collections exist"
+        targetWorkflowId="verifyCollectionAndCategory"
+        subjectChangePath="${newCollectionsIds}"
+        subflowTargetDataDef="collectionId"
+        >
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0 AND existingCategoryNames != null AND existingCategoryNames != ''}">
+            <targetStepName>remove existing categories</targetStepName>
+        </transition>
+        <transition condition="${newCategoryNames != null AND newCategoryNames.size() &gt; 0}">
+            <targetStepName>add new categories</targetStepName>
+        </transition>
+        <transition condition="${existingCollections != null AND existingCollections.size() &gt; 0}">
+            <targetStepName>remove existing collections</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>build collection objects</targetStepName>
+        </transition>
+    </executeSubflowStep>
+
+
+
+    <!-- Remove existing categories from asset -->
+    <nimbus:changeMetaCategoryStep name="remove existing categories"
+        executionLabelExpression="Removing all categories from the asset"
+        targetObjectExpression="${parentObject}"
+        nextStep="add new categories"
+        >
+        <nimbus:removeCategory>${existingCategoryNames}</nimbus:removeCategory>
+    </nimbus:changeMetaCategoryStep>
+
+
+
+    <!-- Add new categories to the asset -->
+    <nimbus:changeMetaCategoryStep name="add new categories"
+        executionLabelExpression="Adding the given categories to the asset"
+        targetObjectExpression="${parentObject}"
+        >
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0 AND existingCollections != null AND existingCollections.size() &gt; 0}">
+            <targetStepName>remove existing collections</targetStepName>
+        </transition>
+        <transition condition="${newCollectionsIds != null AND newCollectionsIds.size() &gt; 0}">
+            <targetStepName>build collection objects</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>reindex</targetStepName>
+        </transition>
+
+        <nimbus:addCategory>${newCategoryNames}</nimbus:addCategory>
+    </nimbus:changeMetaCategoryStep>
+
+
+
+    <!-- Remove existing collections on asset -->
+    <executeSubflowStep name="remove existing collections"
+        executionLabelExpression="Removing the existing collections from the asset"
+        targetWorkflowId="removeCollectionFromAsset"
+        subjectChangePath="${existingCollections}"
+        subflowTargetDataDef="assetCollection"
+        subflowExecutionLimitExpression="1"
+        nextStep="build collection objects"
+        >
+        <subflowContextDataMapping parentDataDef="parentObject" subflowDataDef="asset"/>
+    </executeSubflowStep>
+
+
+
+    <!-- Build asset collection objects from given ids -->
+    <groovyStep name="build collection objects"
+        executionLabelExpression="Building the Asset Collection objects from the given IDs"
+        resultDataDef="newCollectionObjects"
+        nextStep="determine asset type"
+        >
+        <script>
+            <![CDATA[
+                def collectionObjects = new ArrayList();
+                def collectionString = "";
+
+                for(String id : newCollectionsIds) {
+                    collectionString = "[AssetCollection." + id + "]";
+                    collectionObjects.add(collectionString);
+                }
+                println collectionObjects.toString();
+                return collectionObjects;
+            ]]>
+        </script>
+    </groovyStep>
+
+
+
+    <!-- Checking asset type to do correct collection add -->
+    <noopStep name="determine asset type"
+        executionLabelExpression="Asset is of type ${assetType}"
+        >
+        <transition condition="${assetType.equals('timeline')}">
+            <targetStepName>add collections to timeline</targetStepName>
+        </transition>
+        <transition condition="${assetType.equals('clip')}">
+            <targetStepName>add collections to clip</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>add collections to asset master</targetStepName>
+        </transition>
+    </noopStep>
+
+
+
+    <!-- Add all given collections to timeline -->
+    <executeSubflowStep name="add collections to timeline"
+        executionLabelExpression="Adding the given collections to the Timeline"
+        targetWorkflowId="_addCategoryOrCollectionToAsset"
+        subjectChangePath="${newCollectionObjects}"
+        subflowTargetDataDef="collection"
+        nextStep="reindex"
+    >
+        <subflowContextDataMapping parentDataDef="parentObject" subflowDataDef="timeline"/>
+    </executeSubflowStep>
+
+
+
+    <!-- Add all given collections to clip -->
+    <executeSubflowStep name="add collections to clip"
+        executionLabelExpression="Adding the given collections to the Clip"
+        targetWorkflowId="_addCategoryOrCollectionToAsset"
+        subjectChangePath="${newCollectionObjects}"
+        subflowTargetDataDef="collection"
+        nextStep="reindex"
+        >
+        <subflowContextDataMapping parentDataDef="parentObject" subflowDataDef="clip"/>
+    </executeSubflowStep>
+
+
+
+    <!-- Add all given collections to asset master -->
+    <executeSubflowStep name="add collections to asset master"
+        executionLabelExpression="Adding the given collections to the Asset Master"
+        targetWorkflowId="_addCategoryOrCollectionToAsset"
+        subjectChangePath="${newCollectionObjects}"
+        subflowTargetDataDef="collection"
+        nextStep="reindex"
+        >
+        <subflowContextDataMapping parentDataDef="parentObject" subflowDataDef="asset"/>
+    </executeSubflowStep>
+
+
+
+    <!-- Reindex the asset -->
+    <raiseWorkflowEventStep name="reindex"
+        eventTypeExpression="ensureIndexed"
+        executionLabelExpression="Ensure Asset Indexed"
+        nextStep="end">
+        <property name="indexTargetRef">${parentObject}</property>
+    </raiseWorkflowEventStep>
+
+
+    <!-- No asset was found -->
+    <failWorkflowStep name="no asset found"
+        executionLabelExpression="No asset was found with the ID of ${assetId}"
+        reasonExpression="No asset was found with the ID of ${assetId}"
+    />
+
+
+
+    <!-- Log the bad metadata -->
+    <testStep name="log bad metadata"
+        executionLabelExpression="Logging the bad metadata that was found"
+        outputExpression="Bad metadata for the asset ${parentObject.name} >>> ${validatedMetadata.toString()}"
+        nextStep="bad metadata fail"
+    />
+
+
+
+    <!-- Bad metadata fields were found -->
+    <failWorkflowStep name="bad metadata fail"
+        executionLabelExpression="Bad metadata was found in the CSV for the asset ${parentObject.name}. The bad metadata has be put into the Reach Engine logs. Please review and fix it before submitting again."
+        reasonExpression="Bad metadata was found in the CSV for the asset ${parentObject.name}. The bad metadata has be put into the Reach Engine logs. Please review and fix it before submitting again."
+    />
+
+
+
+    <!-- End step -->
+    <noopStep name="end"/>
+
+
+
+
+    <!-- .......................................Context Data Defs............................................. -->
+    <!-- INPUT -->
+    <!-- JSON containing metadata -->
+    <contextDataDef name="metadataJson" dataType="JSON"/>
+    <!-- JSON of all system metadata properties -->
+    <contextDataDef name="systemMetadata" dataType="JSON"/>
+
+    <!-- PROCESSING -->
+    <!-- Parent object for asset -->
+    <contextDataDef name="parentObject" dataType="Data Object"/>
+    <!-- Validated metadata JSON -->
+    <contextDataDef name="validatedMetadata" dataType="JSON" defaultDataExpression="{}"/>
+    <!-- Collection objects to set -->
+    <contextDataDef name="newCollectionObjects" dataType="Data Object" multiple="true"/>
+
+
+    <!-- DEFAULT -->
+    <!-- Given asset type from CSV -->
+    <contextDataDef name="assetType" dataType="String" defaultDataExpression="${metadataJson.get('re-assetType').asText().toLowerCase()}"/>
+    <!-- Given asset ID from CSV -->
+    <contextDataDef name="assetId" dataType="String" defaultDataExpression="${metadataJson.get('re-assetId').asText()}"/>
+    <!-- Categories to set -->
+    <contextDataDef name="newCategoryNames" dataType="String" multiple="true" defaultDataExpression="${#splitString(metadataJson.get('re-assetCategories').asText(), '|', false, true)}"/>
+    <!-- Collections to set -->
+    <contextDataDef name="newCollectionsIds" dataType="String" multiple="true" defaultDataExpression="${#splitString(metadataJson.get('re-assetCollections').asText(), '|', false, true)}"/>
+    <!-- Existing category names on asset -->
+    <contextDataDef name="existingCategoryNames" dataType="String" defaultDataExpression="${#joinElements(parentObject.categoryNames, '|')}"/>
+    <!-- Existing collections asset is in -->
+    <contextDataDef name="existingCollections" dataType="Data Object" multiple="true" defaultDataExpression="${parentObject.collectionMemberships.![collection]}"/>
+
+
+
+</workflow>

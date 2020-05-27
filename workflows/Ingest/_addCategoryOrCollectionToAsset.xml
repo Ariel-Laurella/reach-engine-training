@@ -1,0 +1,245 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2018 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="
+        http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd
+        "
+
+	id="_addCategoryOrCollectionToAsset"
+    name="Add Category Or Collection To Asset"
+    executionLabelExpression="Adding Category: ${category?.name} Or Collection: ${collection?.name} to asset: ${asset?.name} or timeline: ${timeline?.name} or clip: ${clip?.name}" 
+    subjectDOClassName=""
+    showInUserInterface="false"
+    defaultExecutionMode="sync"
+    sdkVersion="4.2"
+	>
+
+	<initialStepName>check what to add</initialStepName>
+	
+	<noopStep name="check what to add">
+		
+		<transition condition="${category != null and asset != null}">
+			<targetStepName>add category to asset</targetStepName>
+		</transition>
+		<transition condition="${collection != null and asset != null}">
+			<targetStepName>test collection contents for asset</targetStepName>
+		</transition>
+		<transition condition="${category != null and timeline != null}">
+			<targetStepName>add category to timeline</targetStepName>
+		</transition>
+		<transition condition="${collection != null and timeline != null}">
+			<targetStepName>test collection contents for timeline</targetStepName>
+		</transition>
+		<transition condition="${category != null and clip != null}">
+			<targetStepName>add category to clip</targetStepName>
+		</transition>
+		<transition condition="${collection != null and clip != null}">
+			<targetStepName>test collection contents for clip</targetStepName>
+		</transition>
+		<!-- should be no way we get here! -->
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+
+	<!-- case 1: add category to asset -->
+	<nimbus:changeMetaCategoryStep
+		name="add category to asset"
+		targetObjectExpression="${asset}" >
+		
+		<!-- multi purpose in case category and collection are passed in -->
+		<transition condition="${collection != null and asset != null}">
+			<targetStepName>test collection contents for asset</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<nimbus:addCategory>${category}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+
+    <!-- case 2: add collection to asset -->
+	<queryStep 
+		name="test collection contents for asset"
+		executionLabelExpression="Verify that asset '${asset.name}' doesn't exist in the collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		<transition condition="${collectionItem != null}">
+			<targetStepName>already in collection</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>add asset to collection</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="collection.id" op="eq"><test value="${collection.id}"/></condition>
+						<condition property="asset.id" op="eq"><test value="${asset.id}"/></condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+	
+	<saveDataObjectStep name="add asset to collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		
+		<transition condition="=true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<property name="collection">${collection}</property>
+		<property name="asset">${asset}</property>
+		<property name="index">${collectionItemIndex}</property>
+	</saveDataObjectStep>
+	
+	<testStep name="already in collection"
+		outputExpression="Asset already exists in this collection">
+		<transition condition="=true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</testStep>
+	
+	<!-- case 3: add category to timeline -->
+	<nimbus:changeMetaCategoryStep
+		name="add category to timeline"
+		targetObjectExpression="${timeline}" >
+		
+		<!-- multi purpose in case category and collection are passed in -->
+		<transition condition="${collection != null and timeline != null}">
+			<targetStepName>test collection contents for timeline</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<nimbus:addCategory>${category}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+	
+	<!-- case 4: add collection to timeline -->
+	
+	<queryStep name="test collection contents for timeline"
+		executionLabelExpression="Verify that timeline '${timeline.name}' doesn't exist in the collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		<transition condition="${collectionItem != null}">
+			<targetStepName>already in collection</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>add timeline to collection</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="collection.id" op="eq"><test value="${collection.id}"/></condition>
+						<condition property="timeline.id" op="eq"><test value="${timeline.id}"/></condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+	
+	<saveDataObjectStep name="add timeline to collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		<transition condition="${ timeline.index() }">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<property name="collection">${collection}</property>
+		<property name="timeline">${timeline}</property>
+		<property name="index">${collectionItemIndex}</property>
+	</saveDataObjectStep>
+	
+	<!-- case 5: add category to clip -->
+	<nimbus:changeMetaCategoryStep
+		name="add category to clip"
+		targetObjectExpression="${clip}" >
+		
+		<!-- multi purpose in case category and collection are passed in -->
+		<transition condition="${collection != null and clip != null}">
+			<targetStepName>test collection contents for clip</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<nimbus:addCategory>${category}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+	
+	<!-- case 6: add collection to clip -->
+	<queryStep 
+		name="test collection contents for clip"
+		executionLabelExpression="Verify that clip '${clip.name}' doesn't exist in the collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		<transition condition="${collectionItem != null}">
+			<targetStepName>already in collection</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>add clip to collection</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="collection.id" op="eq"><test value="${collection.id}"/></condition>
+						<condition property="clip.id" op="eq"><test value="${clip.id}"/></condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+	
+	<saveDataObjectStep name="add clip to collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem">
+		
+		<transition condition="=true">
+			<targetStepName>end</targetStepName>
+		</transition>
+		
+		<property name="collection">${collection}</property>
+		<property name="clip">${clip}</property>
+		<property name="index">${collectionItemIndex}</property>
+	</saveDataObjectStep>
+	
+	<testStep name="already in collection"
+		outputExpression="Asset already exists in this collection">
+		<transition condition="=true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</testStep>
+	
+	<noopStep name="end"></noopStep>
+	
+	<contextDataDef name="collection" dataType="Data Object"/>
+	<contextDataDef name="category" dataType="Data Object"/>
+	<contextDataDef name="asset" dataType="Data Object"/>
+	<contextDataDef name="timeline" dataType="Data Object"/>
+	<contextDataDef name="clip" dataType="Data Object"/>
+	<contextDataDef name="collectionItemIndex" dataType="Integer" defaultDataExpression="${collection?.items?.size() + 1}"/>
+	<contextDataDef name="collectionItem" dataType="Data Object"/>
+</workflow>

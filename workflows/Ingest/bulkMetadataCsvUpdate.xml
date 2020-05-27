@@ -1,0 +1,231 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://levelsbeyond.com/schema/workflow"
+    xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+    id="bulkMetadataCsvUpdate"
+    name="Bulk Metadata CSV Update"
+    description=""
+    executionLabelExpression="Bulk Metadata CSV Update |  Performing a bulk metadata update on ${metadataJsons.size()} assets with the CSV file ${csvFile.absolutePath}"
+    showInUserInterface="true"
+    adminOnly="true"
+    subjectDOClassName=""
+    sdkVersion="">
+    
+    <initialStepName>check input</initialStepName>
+    
+    
+    
+    <noopStep name="check input"
+        executionLabelExpression="Verifying an input CSV file was given and the confirmation checkbox was checked"
+        >
+        <transition condition="${csvFile != null AND #extension(csvFile).toLowerCase().equals('csv') AND confirm}">
+            <targetStepName>parse to json</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>invalid input</targetStepName>
+        </transition>
+    </noopStep>
+    
+    
+    
+    <!-- Parse csv to json -->
+    <executeSubflowStep name="parse to json" 
+        executionLabelExpression="Parse the CSV into a JSON"
+        targetWorkflowId="csvToJson" 
+        resultDataDef="metadataJsons"
+        nextStep="get all metadata properties"
+        >
+        <subflowContextDataMapping parentDataDef="csvFile" subflowDataDef="csvFile"/>
+    </executeSubflowStep>
+    
+    
+    
+    <!-- Get all metadata properties on the system -->
+    <submitHttpStep name="get all metadata properties"
+        executionLabelExpression="Getting all metadata properties on the system"
+        requestMethodExpression="GET"
+        urlExpression="${reachUrl}/reachengine/api/metadata/properties"
+        responseCodeDataDef="responseCode"
+        responsePayloadDataDef="responsePayload"
+        nextStep="query for running subflows"
+        >
+        <requestHeader name="apiKey">${apiKey}</requestHeader>
+    </submitHttpStep>
+    
+    
+    
+    <!-- ................................................ Start Queue Loop ................................................ -->
+    <!-- query for the number of workflows (subflows) that are not finished with a particular name (subflow name). -->
+    <queryStep name="query for running subflows"
+        targetDataObjectClass="WorkflowExecution"
+        resultDataDef="executingSubflows"
+        executionLabelExpression="checking for workflows (with name = ${subflowName} that are not in a finished state"
+        devStep="false"
+        >
+        <transition condition="${executingSubflows == null}">
+            <targetStepName>ready next metadataJsons</targetStepName>
+        </transition>
+        <transition condition="true">
+            <targetStepName>check running subflows</targetStepName>
+        </transition>
+        
+        <criteria>
+            <![CDATA[
+				<criteria>
+					<and>
+						<condition property="workflowVersion.workflow.name" op="eq">
+							<test value="${subflowName}" />
+						</condition>
+						<condition property="status" op="in">
+							<tests>
+								<test value="CREATED" />
+								<test value="QUEUED" />
+								<test value="EXECUTING" />
+							</tests>
+						</condition>
+					</and>
+				</criteria>
+			]]>
+        </criteria>
+    </queryStep>
+    
+    <!-- how many subflows are running and compare to the queue limit -->
+    <noopStep name="check running subflows"
+        executionLabelExpression="number of subflows (name = ${subflowName}) running >>> ${executingSubflows.size()} out of ${queueLimit}"
+        devStep="false"
+        >
+        <transition condition="${ executingSubflows.size() &lt; queueLimit }">
+            <targetStepName>ready next metadataJsons</targetStepName>
+        </transition>
+        <transition condition="${ true }">
+            <targetStepName>queue full</targetStepName>
+        </transition>
+    </noopStep>
+    
+    <!-- if the number of running subflows is not less than the queueLimit, the queue is full and we must wait -->
+    <delayStep name="queue full"
+        delaySecondsExpression="${queuePollInterval}"
+        executionLabelExpression="${executingSubflows.size()}/${queueLimit} running subflows (name = ${subflowName}). Waiting ${queuePollInterval} seconds. ${metadataJsons.size()} remaining metadataJsons."
+        nextStep="query for running subflows"
+    />
+    
+    <!-- if the number of subflows is less than the queueLimit, we can start a new subflow. Readies the next subDir for a new subflow. -->
+    <setContextData name="ready next metadataJsons"
+        targetDataDef="nextJsonsToProcess"
+        valueExpression="${metadataJsons.size() &gt; batchSize ? metadataJsons.subList(0, batchSize) : metadataJsons.subList(0, metadataJsons.size()) }"
+        executionLabelExpression="got ${nextJsonsToProcess.size()} metadataJsons to process"
+        nextStep="remove metadataJsons from main list"
+        devStep="false"
+    />
+    
+    <!-- remove the readied subDir from the main list -->
+    <groovyStep name="remove metadataJsons from main list"
+        resultDataDef="metadataJsons"
+        executionLabelExpression="remove ${nextJsonsToProcess.size()} metadataJsons from the main list"
+        nextStep="process items"
+        devStep="false"
+        >
+        
+        <script>
+            <![CDATA[
+
+				def success = metadataJsons.removeAll(nextJsonsToProcess);
+
+				if(success)
+				    {return metadataJsons;}
+			 	else
+				    {return null;}
+			]]>
+        </script>
+    </groovyStep>
+    
+    <!-- kick off a new subflow. A subflow is only ran once there are less than the queueLimit running at one time -->
+    <executeSubflowStep name="process items"
+        executionLabelExpression="${executingSubflows.size()}/${queueLimit} running subflows (name = ${subflowName}). Preparing ${nextJsonsToProcess.size()} metadataJsons to ingest. ${metadataJsons.size()} remaining metadataJsons"
+        targetWorkflowId="bulkMetadataCsvUpdateSubflow"
+        subjectChangePath="${nextJsonsToProcess}"
+        subflowTargetDataDef="metadataJson"
+        waitForCompletionExpression="true"
+        nextStep="check for more metadataJsons"
+        >
+        <subflowContextDataMapping parentDataDef="responsePayload" subflowDataDef="systemMetadata"/>
+    </executeSubflowStep>
+    
+    <!--
+        check to see if there are more metadataJsons in the main list.
+            If there is
+                Loop back around and check the queue again before processing another subDir in the main list
+            If there is not
+                All metadataJsons have been processed. Exit loop.
+    -->
+    <noopStep name="check for more metadataJsons"
+        executionLabelExpression="number of metadataJsons remaining >>> ${metadataJsons.size()}"
+        devStep="false"
+        >
+        <transition condition="${metadataJsons.size() &gt; 0}">
+            <targetStepName>query for running subflows</targetStepName>
+        </transition>
+        <transition condition="true">
+            <targetStepName>no items to process</targetStepName>
+        </transition>
+    </noopStep>
+    <!-- ................................................. End Queue Loop ................................................. -->
+    
+    
+    <!-- .............................................. Loop Done Steps .............................................. -->
+    <!-- the loop has no more items to process. -->
+    <noopStep name="no items to process"
+        executionLabelExpression="There are no items to process"
+        nextStep="end"
+    />
+    
+    
+    
+    <!-- Invalid input was given -->
+    <failWorkflowStep name="invalid input" 
+        executionLabelExpression="Either no input file was given or it was not a CSV file or the confirmation checkbox was not checked. Please try again."
+        reasonExpression="Either no input file was given or it was not a CSV file or the confirmation checkbox was not checked. Please try again." 
+    />
+    
+    
+    
+    <!-- End step -->
+    <noopStep name="end"/>
+    
+    
+    
+    
+    <!-- .......................................Context Data Defs............................................. -->
+    <!-- INPUT -->
+    <!-- CSV with metadata -->
+    <contextDataDef name="csvFile" label="Metadata CSV File:" dataType="File" userInput="true" required="true"/>
+    <!-- Confirmation checkbox -->
+    <contextDataDef name="confirm" label="By checking this, you acknowledge that metadata for the assets listed in the CSV file is going to be irreversibly overwritten" dataType="Boolean" userInput="true" required="true" defaultDataExpression="${false}"/>
+    
+    <!-- PROCESSING -->
+    <!-- Array of JSONs with asset metadata -->
+    <contextDataDef name="metadataJsons" dataType="JSON" multiple="true" defaultDataExpression="{}"/>
+    <!-- API response code -->
+    <contextDataDef name="responseCode" dataType="String"/>
+    <!-- API response payload -->
+    <contextDataDef name="responsePayload" dataType="JSON"/>
+    
+    <!-- DEFAULT -->
+    <!-- Reach engine URL -->
+    <contextDataDef name="reachUrl" dataType="String" defaultDataExpression="${#sysconfig('ReachEngineAPI.reachEngineURL')}"/>
+    <contextDataDef name="apiKey"   dataType="String"   defaultDataExpression="${#sysconfig('ReachEngineAPI.systemUserApiKey')}"/>
+    
+    <!-- ......... Queue Variables ........... -->
+    <!-- subflows that are returned from the 'not finished' subflow query -->
+    <contextDataDef name="executingSubflows"    dataType="Data Object"      multiple="true"/>
+    <!-- how often to check the number of 'not finished' subflows running (in seconds) -->
+    <contextDataDef name="queuePollInterval"    dataType="Integer"   defaultDataExpression="10"/>
+    <!-- how many subflows to allow to run at a given time -->
+    <contextDataDef name="queueLimit"           dataType="Integer"   defaultDataExpression="${#sysconfig('bulkMetadataCsvUpdate.queueLimit')}"/>
+    <!-- number of subflows to kick off at a time, allowing more processing while the loop removes items from the list for the next go -->
+    <contextDataDef name="batchSize"         	dataType="Integer"   defaultDataExpression="${#sysconfig('bulkMetadataCsvUpdate.queueLimit')}"/>
+    <!-- name of the subflow to query and find how many subflows with this name are 'not finished' -->
+    <contextDataDef name="subflowName"          dataType="String"    defaultDataExpression="Bulk Metadata CSV Update Subflow"/>
+    <!-- set number of metadataJsons from the metadataJsons list to be processed when there is space in the queue -->
+    <contextDataDef name="nextJsonsToProcess"    dataType="JSON"		multiple="true"/>
+    
+</workflow>
