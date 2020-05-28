@@ -1,0 +1,121 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2017 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-4.9.xsd"
+          id="_createThumbnailVideo"
+          name="Create Thumbnail Video"
+          executionLabelExpression="Create thumbails of video ${subject.name}"
+          description=""
+          subjectDOClassName="VideoAssetMaster"
+          showInUserInterface="false"
+          deadlineExpression=""
+          resultDataDef=""
+          sdkVersion="4.2">
+
+	<initialStepName>check for source file copy</initialStepName>
+
+	<noopStep name="check for source file copy">
+		<transition condition="=sourceCopyPath != null">
+			<targetStepName>copy source video</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>create thumbnail video</targetStepName>
+		</transition>
+	</noopStep>
+
+	<copyFileStep
+		name="copy source video"
+		executionLabelExpression="Copy repo file ${assetContent.file.absolutePath} to ${sourceCopyPath}}"
+		sourceFileExpression="=assetContent.file"
+		targetDirectoryExpression="=sourceCopyPath"
+		pctComplete="20"
+		resultDataDef="transcodeSourceFile">
+
+		<transition condition="=true">
+			<targetStepName>create thumbnail video</targetStepName>
+		</transition>
+	</copyFileStep>
+
+	<convertVideoStep
+		name="create thumbnail video"
+		executionLabelExpression="Transcode ${transcodeSourceFile.name} to thumbnail video"
+		sourceFileExpression="=transcodeSourceFile"
+		mediaConversionTemplateExpression="${thumbnailTemplate}"
+		pctComplete="80"
+		resultDataDef="transcodeResultFile"
+		priorityExpression="${priority}">
+		
+		<transition condition="${customRepoProxies != null}">
+			<targetStepName>move file to custom repo</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>save thumbnail video to repository</targetStepName>
+		</transition>
+	</convertVideoStep>
+
+	<!-- customRepo subflow -->
+	<executeSubflowStep
+		name="move file to custom repo"
+		targetWorkflowId="_moveToCustomRepo" 
+		resultDataDef="transcodeResultFile"
+		>
+		<transition condition="true">
+			<targetStepName>save thumbnail video to repository</targetStepName>
+		</transition>
+		<subflowContextDataMapping parentDataDef="transcodeResultFile" subflowDataDef="fileToIngest"/>
+		<subflowContextDataMapping parentDataDef="customRepoProxies" subflowDataDef="repoDirectoryString"/>
+	</executeSubflowStep>
+
+	<saveAssetStep
+		name="save thumbnail video to repository"
+		executionLabelExpression="Save transcode result ${transcodeResultFile.name} to repository"
+		contentExpression="=transcodeResultFile"
+		contentTemplateExpression="=thumbnailTemplate"
+		contentUseExpression="Thumbnail Video"
+		pctComplete="95"
+		versionAssetExpression="=false"
+		assetExpression="${subject}">
+		
+		<transition condition="${customRepoProxies != null}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>delete transcode artifact</targetStepName>
+		</transition>
+	</saveAssetStep>
+
+	<deleteFileStep 
+		name="delete transcode artifact" 
+		sourceFilesExpression="${transcodeResultFile}">
+		
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</deleteFileStep>
+
+	<noopStep name="end"/>
+
+	<contextDataDef name="sourceCopyPath" dataType="Directory"/>
+	<contextDataDef name="assetContent" dataType="Data Object" defaultDataExpression="=#proxyContent(subject) != null ? #proxyContent(subject) : (#mezzanineContent(subject) != null ? #mezzanineContent(subject) : subject.originalContent)"/>
+	<contextDataDef name="thumbnailTemplate" dataType="String" defaultDataExpression="${#sysconfig('import.thumbnailMovSettingName')}"/>
+	<contextDataDef name="transcodeSourceFile" dataType="File" defaultDataExpression="${assetContent.file}"/>
+	<contextDataDef name="transcodeResultFile" dataType="File"/>
+	<contextDataDef name="customRepoProxies" dataType="String"/>
+	<contextDataDef name="priority" dataType="Integer" defaultDataExpression="75"/>
+</workflow>

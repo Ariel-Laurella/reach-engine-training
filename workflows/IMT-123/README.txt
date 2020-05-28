@@ -33,16 +33,28 @@ This workflow is inteded to ...
 
 
 ## Import Order
-1. sendVideoToBrightcove
-2. createLabsManifest
-3. writeLabsBacklotManifest
-4. gatherLabsCaptions
-5. gatherLabsImages
-6. getVideoTechDetails
-7. checkAudioChannelMap
-8. embedNielsenAudioWatermark
-9. asperaDelivery
-10. hallmarkLabsVideoDelivery
+
+2.saveAssetMetadata
+3.ingestAssetBase
+4.ingestAssetWithMetadata
+5.ingestDirectoryWithMetadata
+
+
+I decided to customize all dependences and use standard. 
+I reused some code from standard workflows
+
+##dependencias:
+
+The following workflows are dependencies of ingestAssetWithMetadata. They are included in the package, but not needed to import if they still exists
+in the target environment.
+
+_baseAssetIngest
+_createProxiesAnyAsset
+_createVideoProxies
+_createThumbnailVideo
+_createImageProxies
+_createAudioProxy
+_createDocumentProxies
 
 
 

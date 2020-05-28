@@ -103,7 +103,105 @@ It devives from _anyDirectoryIngest.xml workflow.
 	</queryStep>
 
 
-  <!-- TODO: here I should send 11 files at most and 4 file at least? -->
+<!-- TODO: make grroovy spet top parse json returned by the following script-->
+<!--
+	// Convert csv to Json format
+	import groovy.json.JsonSlurper
+	import jdk.nashorn.internal.ir.debug.JSONWriter
+
+
+	//def csvFile = 'C:\\Temp\\sample-csv-imt - Sheet1.csv'
+	//def jsonFile = 'C:\\Temp\\sample-key-mapping-imt.json'
+	//def filesDirectory = 'C:\\Video'
+
+
+	File csvFileToProcess = new File(csvFile)
+	File jsonFileToProcess = new File(jsonFile)
+
+	def jsonMappingSlurper = new JsonSlurper()
+	def jsonListSlurper = new JsonSlurper()
+	def digestedCsvRows = new ArrayList()
+	def reachFieldNames = new ArrayList()
+	def csvColumnPosition = new ArrayList()
+	def csvRows = new ArrayList()
+	def jsonMappingelemnts = [:]
+	def csvHeaderFilename = "fileName"
+
+
+	//Parse scv file
+	csvFileToProcess.eachLine {
+	// 'it' is the line in the text file
+	csvRows.add(it)
+	}
+
+	//save reachFieldNames from the Json mapping
+	def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+	jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
+
+	for (int i = 0; i < jsonMappingelemnts.size(); i++) {
+	for (int j = 0; j < csvHeader.size(); j++)
+	{
+	if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
+	{
+	reachFieldNames.add(jsonMappingelemnts.values()[i])
+	csvColumnPosition.add(j)
+	}
+	if (csvHeader[j] == csvHeaderFilename && i == 0)
+	{
+	reachFieldNames.add(csvHeaderFilename)
+	csvColumnPosition.add(j)
+	}
+	}
+
+	}
+
+	//remove HeaderRow from array csvRows
+	csvRows.remove(0)
+
+
+
+	// start looping over the lines in the CSV
+	def rowCounter = 0
+
+	for (def row in csvRows){
+	rowCounter++
+	Map singleLineResult = [:]  // this will be the return for this loop execution
+
+	if (row == null || !row.contains(",") ){
+	continue
+	}
+
+	//def splitRow = row.split(",")
+	def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+
+
+
+	for (int j = 0; j < csvColumnPosition.size(); j++)
+	{
+	def rowValue
+	try {
+	rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
+	}
+	catch (Exception e)
+	{
+	rowValue = ""
+	}
+
+	singleLineResult.put(reachFieldNames[j], rowValue)
+	}
+	digestedCsvRows.add(singleLineResult)
+
+	}
+
+	return digestedCsvRows
+
+-->
+
+
+
+
+
+	<!-- TODO: here I should send 11 files at most and 4 file at least? -->
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
 			   	subjectExpression="I'm just writing to say.."
@@ -158,6 +256,8 @@ It devives from _anyDirectoryIngest.xml workflow.
 
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
+
+
 	<noopStep name="no files to process"
 		executionLabelExpression="No files in ${directoryToIngest.absolutePath}."
 		pctComplete="99"

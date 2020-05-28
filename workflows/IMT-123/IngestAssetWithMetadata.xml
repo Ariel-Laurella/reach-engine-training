@@ -2,7 +2,7 @@
 This workflow is inteded to ingest files, creating new asset and fill metadata according to a given CSV.
 It devives from _anyAssetIngest.xml workflow.
 
-  -->
+-->
 
 <workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xmlns="http://levelsbeyond.com/schema/workflow"
@@ -133,6 +133,8 @@ It devives from _anyAssetIngest.xml workflow.
 	
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
+
+
 	<noopStep name="end"	pctComplete="100"/>
 	
 	
@@ -228,7 +230,7 @@ It devives from _anyAssetIngest.xml workflow.
 	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	    multiple="true"/>
 	<contextDataDef name="assetMaster" 			    dataType="Data Object"/>
 	<contextDataDef name="ingestSubflow"            dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.sourceIngestWorkflow') ?: '_baseAssetIngest'}"/>
-	<contextDataDef name="metadataSubflow"          dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.metadataWorkflow') ?: '_saveAnyAssetMetadata'}"/>
+	<contextDataDef name="metadataSubflow"          dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.metadataWorkflow') ?: 'saveAssetMetadata'}"/>
 	<contextDataDef name="proxiesSubflow"           dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.proxiesWorkflow') ?: '_createProxiesAnyAsset'}"/>
 	
 	<!-- ..... Deprecated But Supported ...... -->
@@ -237,5 +239,12 @@ It devives from _anyAssetIngest.xml workflow.
 	<contextDataDef name="skipMezzanineFlag"        dataType="Boolean"/>
 	<contextDataDef name="allowDuplicateNamesFlag"  dataType="Boolean"/>
 	<contextDataDef name="versionName"              dataType="String"/>
-	
+
+
+	<!-- TODO: These variables must be removed -->
+
+
+
+
+
 </workflow>

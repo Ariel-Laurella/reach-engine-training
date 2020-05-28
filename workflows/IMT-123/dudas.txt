@@ -1,18 +1,31 @@
-debería borrar los files de la entrada despues de ingestarlos?
-
-
-
 Frase para poner en los flujos que modifiqué de LB:
 This is fair use of original workflow xxxx (_xxxx.xml) , property of Levels Beyond Inc. 
 
 
+debería borrar los files de la entrada despues de ingestarlos?
+
 no toma el aac como audio, 
+
+
+
+que recomienda cuando reutilizo workflows existentes? les cambio el nombre y los instalo por si en el otro entorno los modificaron?
 
 como puedo ver si existe un campo o si debo crearlo. 
 
 como puedo obtener el valor de un campo.
 
-
 como obtengo el id 
 
 update metadata
+
+especialmente cómo agrego metadatos en keywords
+
+
+
+
+
+
+------------------------------------
+
+add items to picklist --> lo encontr{e en updateMetadataFromFileMakerProAsset.xml
+
