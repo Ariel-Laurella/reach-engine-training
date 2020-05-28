@@ -9,7 +9,9 @@ Last Updated By: Ariel Laurella of IMT, 2020-05-30
 
 This workflow is exceuted by 
 
-input:  UI and input fileds , and input files included CSV and JSON
+should send 11 files at most and 4 file at least
+
+input:  UI and input fileds , and input files included CSV as metadata file and JSON file as metadata mapping.
 output:  Expected success and fail
 
 

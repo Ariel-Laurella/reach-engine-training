@@ -1,0 +1,47 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+
+          id="GroovyExample"
+          name="GroovyExample"
+          description="GroovyExample"
+          executionLabelExpression="GroovyExample | ${subject.name}"
+          subjectDOClassName="AssetMaster"
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion="2.3.12"
+
+>
+
+    <initialStepName>SendMsg</initialStepName>
+
+
+    <groovyStep name="SendMsg" resultDataDef="ftpResult" nextStep="printResult" >
+
+        <script>
+            <![CDATA[
+
+                import org.apache.commons.net.ftp
+
+                println('My source file is ' + sourceFile.absolutePath.toString() )
+
+                return 'Success'
+
+            ]]>
+        </script>
+
+    </groovyStep>
+
+    <noopStep name="printResult"
+              executionLabelExpression="${ftpResult}"
+              nextStep="end"
+              />
+
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourceFile"   dataType="File"   defaultDataExpression="${subject.mezzanine.file}" />
+    <contextDataDef name="ftpResult" dataType="String" />
+
+</workflow>

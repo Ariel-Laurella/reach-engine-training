@@ -1,0 +1,180 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+
+          id="TestSendFTP2"
+          name="TestSendFTP2"
+          description="Send file to FTP"
+          executionLabelExpression="Send Asset by FTP | ${subject.name}"
+          subjectDOClassName="AssetMaster"
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion="2.3.12"
+
+>
+
+    <initialStepName>Send_FTP</initialStepName>
+
+
+    <groovyStep name="Send_FTP" resultDataDef="ftpResult" nextStep="printResult" >
+
+        <script>
+            <![CDATA[
+import org.apache.commons.net.ftp.FTPClient
+import org.apache.commons.net.ftp.FTPReply
+import java.io.InputStream.*
+import java.io.FileInputStream.*
+import java.lang.ClassLoader.*
+
+FTPClient ftpClient = new FTPClient()
+String result = 'Error'
+//ClassLoader classLoader = null
+//InputStream  is = null
+FileInputStream is = null
+
+try
+{
+    //Connection to FTP
+    ftpClient.connect(ftpServer)
+    println("Connected to " + ftpServer)
+    println(ftpClient.getReplyString())
+
+
+    println("***************1")
+
+
+    //Verify correct access
+    if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode()))
+    {
+        println("***************2")
+
+        //Login user and password
+        if ( ftpClient.login(ftpUser, ftpPassword))
+        {
+            println(ftpClient.getReplyString())
+            println("***************3")
+
+
+
+
+            //set Local Passive Mode
+            ftpClient.enterLocalPassiveMode()
+            println(ftpClient.getReplyString())
+            println("***************4")
+
+
+            //Change working directory where copy the file
+            ftpClient.changeWorkingDirectory(ftpPath)
+            println(ftpClient.getReplyString())
+            println("***************5")
+
+
+            //Set file transfer mode: binary for media files
+            ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE)
+            println(ftpClient.getReplyString())
+            println("***************6")
+
+
+            if (FTPReply.isPositiveCompletion(ftpClient.getReplyCode())) {
+
+                //Upload File
+
+                try {
+
+                    println('sourceFile: ' + sourceFile)
+
+                    //classLoader = Thread.currentThread().getContextClassLoader()
+                    //is = classLoader.getResourceAsStream(sourceFile)
+
+                    is = new FileInputStream(sourceFile)
+
+                    //send noop to prevent server timeout
+                    ftpClient.sendNoOp()
+                    println(ftpClient.getReplyString())
+                    println("***************7")
+
+
+                    if (ftpClient.storeFile(destFilename, is))
+                    {
+                        result = 'Success'
+
+                    }
+
+
+
+
+                }
+                catch (Exception e) {
+                    println('FTP COPY ERROR: ' + e.message)
+                    println("***************11")
+
+                }
+
+                println(ftpClient.getReplyString())
+                println("***************8")
+
+
+
+            } else
+            {
+                println("***************12")
+
+                println(ftpClient.getReplyString())
+            }
+
+        } else
+        {
+            println(ftpClient.getReplyString())
+            println("***************13")
+        }
+
+    } else {
+        println("FTP server refused connection")
+        println("***************14")
+
+    }
+
+}
+catch(IOException e)
+{
+    println('FTP ERROR: ' + e.message)
+    println("***************15")
+
+}
+
+finally
+{
+    if(ftpClient.isConnected())
+    {
+        println("***************9")
+        ftpClient.disconnect()
+    }
+}
+println("***************10")
+
+return result
+
+
+            ]]>
+        </script>
+
+    </groovyStep>
+
+    <noopStep name="printResult"
+              executionLabelExpression="${ftpResult}"
+              nextStep="end"
+              />
+
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourceFile"   dataType="String"   defaultDataExpression="${subject.mezzanine.file.absolutePath}" />
+    <contextDataDef name="ftpServer"    dataType="String" defaultDataExpression="ftp.levelsbeyond.com" />
+    <contextDataDef name="ftpUser"      dataType="String" defaultDataExpression="partner" />
+    <contextDataDef name="ftpPassword"  dataType="String" defaultDataExpression="-T#T@_k0AxvT" />
+    <contextDataDef name="ftpPath" dataType="String" defaultDataExpression="/test" />
+    <contextDataDef name="destFilename" dataType="String" label="Enter Destination Filename"  required="true" userInput="true" />
+    <contextDataDef name="ftpResult" dataType="String" />
+
+</workflow>

@@ -1,0 +1,39 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+
+          id="TestSendFTP1"
+          name="TestSendFTP1"
+          description="Send file to FTP"
+          executionLabelExpression="Send Asset FTP | ${subject.name}"
+          subjectDOClassName="AssetMaster"
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion="2.3.12"
+
+>
+
+    <initialStepName>Send_FTP</initialStepName>
+
+    <nimbus:ftpFileStep name="Send_FTP"
+                        sourceFileExpression="${sourceFile}"
+                        ftpServerExpression="${ftpServer}"
+                        ftpUserExpression="${ftpUser}"
+                        ftpPasswordExpression="${ftpPassword}"
+                        ftpFolderExpression="${ftpPath}"
+                        targetFileExpression="${destFilename}"
+                        nextStep="end"
+
+                        />
+
+    <noopStep name="end" />
+
+    <contextDataDef name="sourceFile"   dataType="File"   defaultDataExpression="${subject.mezzanine.file}" />
+    <contextDataDef name="ftpServer"    dataType="String" defaultDataExpression="ftp.levelsbeyond.com" />
+    <contextDataDef name="ftpUser"      dataType="String" defaultDataExpression="partner" />
+    <contextDataDef name="ftpPassword"  dataType="String" defaultDataExpression="-T#T@_k0AxvT" />
+    <contextDataDef name="ftpPath" dataType="String" defaultDataExpression="test/" />
+    <contextDataDef name="destFilename" dataType="String" label="Enter Destination Filename"  required="true" userInput="true" />
+
+</workflow>

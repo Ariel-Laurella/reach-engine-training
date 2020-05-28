@@ -1,0 +1,33 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd "
+
+	id="testTMZW-9"
+	name="test data object search"
+	executionLabelExpression="Adding ${subject.name} to ${collectionName} ⁓ ${#formatDate('w3c', #newDate())}"
+	subjectDOClassName=""
+	description=""
+	showInUserInterface="true"
+	sdkVersion=""
+>
+	<initialStepName>end</initialStepName>
+
+	<noopStep name="end" devStep="true"/>
+
+	<!-- ............................................. CONTEXT DATA DEFS ............................................... -->
+	<!--user input-->
+	<contextDataDef name="collection" dataType="Data Object" userInput="true" label="Existing Collection">
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCollection">
+				<searchPath>name</searchPath>
+				<criteria>
+					<or xmlns="http://levelsbeyond.com/schema/criteria" >
+						<condition property="private" op="eq" >
+							<value>0</value>
+						</condition>
+					</or>
+				</criteria>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+</workflow>

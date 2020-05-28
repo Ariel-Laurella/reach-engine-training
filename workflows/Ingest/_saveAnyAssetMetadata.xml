@@ -90,7 +90,7 @@
 				Set linkKeys = []
 				allDataJson.metadata.each{ key, value ->
 					if(value instanceof Map){
-						if(value.title != null && value.url != null){
+						if(value.url != null) {
 							Map linkMap = [propertyName: key, linkInfo: value]
 							allDataJson.links.push(linkMap)
 							linkKeys.add(key)
@@ -303,19 +303,13 @@
 		</transition>
 	</noopStep>
 	
-	
-	<executeSubflowStep name="add asset to collections"
-		targetWorkflowId="_addAnyAssetToCollection"
-		subjectChangePath="${collections}"
-		subflowTargetDataDef="collection"
+	<addToCollectionStep name="add asset to collections"
 		executionLabelExpression="save asset to collections from dataDef &quot;collections&quot;"
+		dataObjectsExpression="${asset}" 
+		collectionsExpression="${collections}"
 		pctComplete="99"
-		nextStep="end"
-		>
-		<subflowContextDataMapping parentDataDef="asset" subflowDataDef="asset"/>
-	</executeSubflowStep>
-	
-	
+		nextStep="end"/>
+		
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
 	<noopStep name="end"	pctComplete="100"/>

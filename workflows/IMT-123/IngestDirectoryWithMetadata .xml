@@ -1,13 +1,14 @@
 <!--
 This workflow is inteded to ingest files, creating new asset and fill metadata according to a given CSV.
-It devives from _anyDirectoryIngest.xml workflow
+It devives from _anyDirectoryIngest.xml workflow.
+
 -->
 
 <workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xmlns="http://levelsbeyond.com/schema/workflow"
 	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
 	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
-    id="IngestDirectoryWithMetadata "
+    id="IngestDirectoryWithMetadata"
     name="Ingest Directory With Metadata"
     executionLabelExpression="Ingest Directory With Metadata | Directory: ${directoryToIngest.absolutePath}"
     deadlineExpression=""
@@ -59,7 +60,6 @@ It devives from _anyDirectoryIngest.xml workflow
 		</criteria>
 	</queryStep>
 	
-	<!-- TODO: validar que el directorio tambien contenga el CSV y JSON-->
 	<noopStep name="check if directory is empty"
 		executionLabelExpression="are there files in the directory? ${filesToIngest != null AND filesToIngest.size() &gt; 0}"
 		>
@@ -70,15 +70,14 @@ It devives from _anyDirectoryIngest.xml workflow
 			<targetStepName>no files to process</targetStepName>
 		</transition>
 	</noopStep>
-	
-	
+
 	<!-- ................................................... Queue Loop ................................................... -->
 	<queryStep name="query for running subflows"
 			   targetDataObjectClass="WorkflowExecution"
 			   resultDataDef="executingSubflows"
 			   executionLabelExpression="checking for workflows (with name = ${subflowName}) that match this directory that are also not in a finished state"
 			   devStep="false"
-			   nextStep="process files"
+			   nextStep="sendEmail"
 	>
 		<criteria>
 			<![CDATA[
@@ -102,6 +101,19 @@ It devives from _anyDirectoryIngest.xml workflow
             ]]>
 		</criteria>
 	</queryStep>
+
+
+  <!-- TODO: here I should send 11 files at most and 4 file at least? -->
+
+	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
+			   	subjectExpression="I'm just writing to say.."
+				nextStep="process files"
+	>
+		<body>
+			<![CDATA[    Cantidad de files: ${filesToIngest.size()}  ]]>
+		</body>
+	</emailStep>
+
 
 
 	<executeSubflowStep name="process files"
@@ -164,45 +176,17 @@ It devives from _anyDirectoryIngest.xml workflow
 	
 	
 	<!-- ............................................... Context Data Defs ................................................ -->
+
 	<!-- ....... User Input Variables ........ -->
 	<contextDataDef name="directoryToIngest" 		dataType="Directory"	userInput="true"    label="Directory To Ingest"  required="true" displayIndex="1" />
-	<contextDataDef name="collections"              dataType="Data Object"  userInput="true"    label="Collections"          multiple="true" displayIndex="2" >
-		<picklist>
-			<dataObjectSearch dataObjectClass="AssetCollection">
-				<searchPath>name</searchPath>
-			</dataObjectSearch>
-		</picklist>
-	</contextDataDef>
-	<contextDataDef name="metadataForm"             dataType="MetadataForm" userInput="true"    label="Metadata Form" displayIndex="3" />
-	
+	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="true" displayIndex="2" />
+	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="true" displayIndex="3" />
+
+	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+
+
 	<!-- .......... Input Variables .......... -->
-	<!-- metadata options -->
-	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>
-	<contextDataDef name="categories"               dataType="Data Object"  multiple="true"/>
-	<contextDataDef name="categoryNames"            dataType="String"           multiple="true"/>
-	<contextDataDef name="jsonMetadata"             dataType="JSON">
-		<description>
-			Single JSON where:
-				Keys are metadata property names
-				Values are what to set the matching property to on this asset
-		</description>
-	</contextDataDef>
-	<contextDataDef name="linkMetadata"             dataType="JSON"             multiple="true">
-		<description>
-			Array of JSONs where:
-				Each JSON has 2 Keys (propertyName and linkInfo):
-					propertyName's value is a metadata property name of type link
-					linkInfo's value is a JSON with 2 keys (title and url):
-						title's value is the display name for the link
-						url's value is the url to open when the title is clicked on
-		</description>
-	</contextDataDef>
-	<contextDataDef name="metadataFormType"         dataType="String"           defaultDataExpression="access">
-		<description>
-			TEMPORARY!!! (Forms will be standardized to the same format in the future)
-				Valid types = "access" or "panel"
-		</description>
-	</contextDataDef>
 	<!-- ingest options (defaults in subflow) -->
 	<contextDataDef name="sourceAsMezz"             dataType="Boolean"/>
 	<contextDataDef name="checkForDuplicate"        dataType="Boolean"/>
@@ -247,6 +231,46 @@ It devives from _anyDirectoryIngest.xml workflow
 	<contextDataDef name="queueLimit" 			    dataType="Integer" 		defaultDataExpression="${#sysconfig('workflows.default.ingestDirectory.queueLimit') ?: 11}"/>
 	<contextDataDef name="batchSize" 		        dataType="Integer" 		defaultDataExpression="${#sysconfig('workflows.default.ingestDirectory.batchSize') ?: 10}"/>
 	<contextDataDef name="queryPollInterval"  	    dataType="Integer" 		defaultDataExpression="${#sysconfig('workflows.default.ingestDirectory.queryPollInterval') ?: 60}"/>
-	<contextDataDef name="ingestSubflow"      	    dataType="String" 		defaultDataExpression="${#sysconfig('workflows.default.ingestAssetWorkflow') ?: '_anyAssetIngest'}"/>
-	
+	<contextDataDef name="ingestSubflow"      	    dataType="String" 		defaultDataExpression="IngestAssetWithMetadata"/>
+
+
+<!-- TODO: These variables must be removed -->
+
+
+	<contextDataDef name="collections"              dataType="Data Object"  label="Collections"          multiple="true" />
+	<contextDataDef name="metadataForm"             dataType="MetadataForm" label="Metadata Form"/>
+
+	<!-- metadata options -->
+	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>
+	<contextDataDef name="categories"               dataType="Data Object"  multiple="true"/>
+	<contextDataDef name="categoryNames"            dataType="String"           multiple="true"/>
+	<contextDataDef name="jsonMetadata"             dataType="JSON">
+		<description>
+			Single JSON where:
+			Keys are metadata property names
+			Values are what to set the matching property to on this asset
+		</description>
+	</contextDataDef>
+	<contextDataDef name="linkMetadata"             dataType="JSON"             multiple="true">
+		<description>
+			Array of JSONs where:
+			Each JSON has 2 Keys (propertyName and linkInfo):
+			propertyName's value is a metadata property name of type link
+			linkInfo's value is a JSON with 2 keys (title and url):
+			title's value is the display name for the link
+			url's value is the url to open when the title is clicked on
+		</description>
+	</contextDataDef>
+	<contextDataDef name="metadataFormType"         dataType="String"           defaultDataExpression="access">
+		<description>
+			TEMPORARY!!! (Forms will be standardized to the same format in the future)
+			Valid types = "access" or "panel"
+		</description>
+	</contextDataDef>
+
+
+
+
+
+
 </workflow>

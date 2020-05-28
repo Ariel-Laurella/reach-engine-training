@@ -1,0 +1,55 @@
+<workflow
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:cri="http://levelsbeyond.com/schema/criteria"
+	xsi:schemaLocation="
+	http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd
+
+	"
+
+	id="testTMZW-9"
+	name="test data object search"
+	executionLabelExpression="Adding ${subject.name} to ${collectionName} ⁓ ${#formatDate('w3c', #newDate())}"
+	subjectDOClassName=""
+	description=""
+	showInUserInterface="true"
+	sdkVersion=""
+>
+	<initialStepName>end</initialStepName>
+
+	<noopStep name="end" devStep="true"/>
+
+	<!-- ............................................. CONTEXT DATA DEFS ............................................... -->
+	<!--user input-->
+
+    <!--
+    my uuid: e1c87f1e-36c3-4692-97b9-ff77ad686100
+
+    <contextDataDef name="userUud" dataType="String" label="UserUuid" defaultDataExpression="${#this.startedBy.uuid}"/>
+     -->
+
+
+    <!-- my uuid: e1c87f1e-36c3-4692-97b9-ff77ad686100 -->
+
+    <contextDataDef name="userUud" dataType="String" label="UserUuid" defaultDataExpression="e1c87f1e-36c3-4692-97b9-ff77ad686100"/>
+    <contextDataDef name="collection" dataType="Data Object" userInput="true" label="Existing Collection" >
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCollection">
+                <searchPath>name</searchPath>
+				<criteria>
+					<cri:or>
+						<!--
+						<cri:condition property="private" op="eq">
+							<cri:value>0</cri:value>
+						</cri:condition>
+						-->
+						<cri:condition property="owner.uuid" op="eq">
+							<cri:value>${userUud}</cri:value>
+						</cri:condition>
+					</cri:or>
+				</criteria>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+
+</workflow>

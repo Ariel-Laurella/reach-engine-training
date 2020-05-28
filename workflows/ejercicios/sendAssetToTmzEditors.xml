@@ -1,0 +1,166 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:cri="http://levelsbeyond.com/schema/criteria"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd"
+
+	id="sendAssetToTmzEditors"
+	name="Send To 1920 x 1080 Collection"
+	executionLabelExpression="Adding ${subject.name} to ${collectionName} ⁓ ${#formatDate('w3c', #newDate())}"
+	subjectDOClassName="AssetMaster"
+	description=""
+	showInUserInterface="true"
+	sdkVersion=""
+>
+	<initialStepName>dispatch</initialStepName>
+
+	<noopStep name="dispatch"
+		devStep="true"
+	>
+		<transition condition="${null == collection}">
+			<targetStepName>query for collection</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>check for asset in collection</targetStepName>
+		</transition>
+	</noopStep>
+
+	<!-- ........................................... QUERY FOR COLLECTION ............................................. -->
+	<queryStep name="query for collection"
+		executionLabelExpression="Checking to see if collection ${collectionName} exists >>> ${collection != null}"
+		targetDataObjectClass="AssetCollection"
+		resultDataDef="collection"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="name" op="eq">
+			<test value="${collectionName}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+
+		<transition condition="${null == collection}">
+			<targetStepName>avoid race condition waiting period</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>check for asset in collection</targetStepName>
+		</transition>
+	</queryStep>
+
+	<!-- .................................... AVOID RACE CONDITION WAITING PERIOD ...................................... -->
+	<delayStep name="avoid race condition waiting period"
+		executionLabelExpression="Waiting pool to avoid race condition for collection creation"
+		delaySecondsExpression="5"
+		nextStep="query for collection again"
+	/>
+
+	<!-- ........................................... QUERY FOR COLLECTION ............................................. -->
+	<queryStep name="query for collection again"
+		targetDataObjectClass="AssetCollection"
+		executionLabelExpression="Has a ${collectionName} been created? >>> ${collection != null}"
+		resultDataDef="collection"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="name" op="eq">
+			<test value="${collectionName}"/>
+		</condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+
+		<transition condition="${null == collection}">
+			<targetStepName>create collection</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>check for asset in collection</targetStepName>
+		</transition>
+	</queryStep>
+
+	<!-- ............................................. CREATE COLLECTION ............................................... -->
+	<saveDataObjectStep name="create collection"
+		targetDataObjectClass="AssetCollection"
+		resultDataDef="collection"
+		executionLabelExpression="Creating collection: ${collectionName}"
+		nextStep="create image mezzanine if needed"
+	>
+		<property name="name">${collectionName}</property>
+	</saveDataObjectStep>
+
+	<!-- ....................................... CHECK FOR ASSET IN COLLECTION .......................................... -->
+	<queryStep name="check for asset in collection"
+		executionLabelExpression="Verify that asset '${subject.name}' doesn't exist in the collection"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem"
+	>
+		<criteria>
+			<![CDATA[
+<criteria>
+	<and>
+		<condition property="collection.id" op="eq"><test value="${collection.id}"/></condition>
+		<condition property="asset.id" op="eq"><test value="${subject.id}"/></condition>
+	</and>
+</criteria>
+			]]>
+		</criteria>
+
+		<transition condition="${collectionItem != null}">
+			<targetStepName>asset already in collection</targetStepName>
+		</transition>
+		<transition condition="=true">
+			<targetStepName>create image mezzanine if needed</targetStepName>
+		</transition>
+	</queryStep>
+
+	<!-- ........................................ ADD ASSET TO COLLECTION ............................................ -->
+	<executeSubflowStep name="create image mezzanine if needed"
+		targetWorkflowId="createImageMezzanine"
+		subjectChangePath="${subject}"
+		nextStep="add asset to collection"
+	/>
+
+	<saveDataObjectStep name="add asset to collection"
+		executionLabelExpression="Adding ${subject.name} to ${collectionName}"
+		targetDataObjectClass="AssetCollectionItem"
+		resultDataDef="collectionItem"
+		nextStep="end"
+	>
+		<property name="collection">${collection}</property>
+		<property name="asset">${subject}</property>
+	</saveDataObjectStep>
+
+	<!-- ............................................. ENDINGS AND FAILS ............................................... -->
+	<failWorkflowStep name="asset already in collection"
+		reasonExpression="This asset (${subject.name}) is already in collection ${collectionName}"
+		executionLabelExpression="This asset (${subject.name}) is already in collection ${collectionName}"
+	/>
+
+	<noopStep name="end" devStep="true"/>
+
+
+	<!-- ............................................. CONTEXT DATA DEFS ............................................... -->
+	<!--user input-->
+	<contextDataDef name="collectionNameNew" dataType="String" userInput="true" defaultDataExpression="TMZ_Editors" label="New Collection"/>
+	<contextDataDef name="collection" dataType="Data Object" userInput="true" label="Existing Collection" >
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCollection">
+				<searchPath>name</searchPath>
+				<criteria>
+					<cri:or>
+						<cri:condition property="private" op="eq">
+							<cri:value>0</cri:value>
+						</cri:condition>
+					</cri:or>
+				</criteria>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+	<contextDataDef name="collectionName" dataType="String" defaultDataExpression="${null == collection ? collectionNameNew : collection.name}"/>
+	<contextDataDef name="collectionItem" dataType="Data Object"/>
+</workflow>

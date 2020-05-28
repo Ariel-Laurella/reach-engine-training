@@ -1,0 +1,48 @@
+<workflow
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+	http://levelsbeyond.com/schema/workflow http://schema.levelsbeyond.com/latest/studio.xsd
+
+	"
+
+	id="testTMZW-9"
+	name="test data object search"
+	executionLabelExpression="Adding ${subject.name} to ${collectionName} ⁓ ${#formatDate('w3c', #newDate())}"
+	subjectDOClassName="AssetCollection"
+	description=""
+	showInUserInterface="true"
+	sdkVersion=""
+>
+	<initialStepName>end</initialStepName>
+
+	<noopStep name="end" devStep="true"/>
+
+	<!-- ............................................. CONTEXT DATA DEFS ............................................... -->
+	<!--user input-->
+	<contextDataDef name="collection" dataType="Data Object" userInput="true" label="Existing Collection">
+		<picklist>
+			<dataObjectSearch dataObjectClass="AssetCollection">
+				<searchPath>owner.uuid</searchPath>
+
+				<criteria>
+					<or xmlns="http://levelsbeyond.com/schema/criteria">
+						<!--
+						<crit:condition property="private" op="eq">
+							<crit:value>0</crit:value>
+						</crit:condition>
+						-->
+						<condition property="owner.uuid" op="eq">
+							<value>${userUud}</value>
+						</condition>
+					</or>
+
+
+				</criteria>
+			</dataObjectSearch>
+		</picklist>
+	</contextDataDef>
+	<contextDataDef name="userUud" dataType="String" label="UserUuid" defaultDataExpression="${#this.startedBy.uuid}" userInput="true" />
+	<contextDataDef name="ownerUud" dataType="String" label="ownerUud" defaultDataExpression="${subject.owner.uuid}" userInput="true"/>
+
+</workflow>

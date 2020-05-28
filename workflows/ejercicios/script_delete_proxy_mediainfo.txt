@@ -1,0 +1,73 @@
+//Delete Proxy
+
+
+//Media Process Status (MPS) of this MediaInfo. Values are:
+//0: Offline
+//1: Online (file is not growing)
+//3: About to record (a recording operation has been scheduled, but recording has not yet started)
+//8: Changed by third-pary (Dalet observes that the file is growing, but no Dalet agent is working on it)
+//9: About to copy (a file migration job has been scheduled, but copying has not yet started)
+//11: Copying started (the file is growing)
+//12: Recording started (the file is growing)
+
+
+import com.dalet.bpm.extension.api.DaletAPI
+import com.dalet.dtk.runtime.ClientFactory
+import com.dalet.webservice.services.mediaservice.MediaService
+import com.dalet.webservice.services.mediaservice.definition.*
+
+
+//Registrar en variables Itemcode y TitleId
+
+Long title_id = Long.valueOf([[Start_event.titleID]])
+//Long title_id = Long.valueOf(3200804)
+Long videoLsuStornextUnit = 3
+
+def result = 'OK'
+def proxyUnits = [6,
+                  396,
+                  403,
+                  404,
+                  418,
+                  428,
+                  481,
+                  618,
+                  139,
+                  181,
+                  287,
+                  344,
+                  359,
+                  374,
+                  378,
+                  391,
+				  649]
+
+ClientFactory newClientFactory = new ClientFactory("TLFDGALMSSQL.playasur.ad.viacom.com", "TELEFE", "sa_dgal_prod", "S154236f")
+DaletAPI daletApi = new DaletAPI()
+daletApi.cf = newClientFactory
+daletApi.init()
+
+MediaService mediaService = daletApi.MediaService()
+List<MediaInfo> medias = mediaService.getMediaInfoByAssetId(title_id)
+
+
+for(i=0; i < medias.size(); i++) {
+
+    if (medias[i].storageUnitId.toInteger() in proxyUnits  || medias[i].storageUnitId == videoLsuStornextUnit )
+    {
+        if (mediaService.deleteMediaInfo(medias[i].id) == false ) {
+            result = 'ERROR'
+        }
+    }
+	
+	
+	
+}
+
+
+
+
+context.setVariable(execution, 'Result', result)
+
+
+

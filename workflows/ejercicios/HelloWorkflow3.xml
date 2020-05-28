@@ -1,0 +1,54 @@
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://levelsbeyond.com/schema/workflow"
+          xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/latest/studio.xsd"
+          id="helloWorkflow3"
+          name="Hello3"
+          description="Says Hello to the user."
+          executionLabelExpression=""
+          subjectDOClassName=""
+          resultDataDef=""
+          deadlineExpression=""
+          sdkVersion=""
+>
+    <initialStepName>send e-mail</initialStepName>
+
+    <contextDataDef name="test" dataType="String" label="sdfsdf" />
+
+    <emailStep name="send e-mail"
+               emailAddressesExpression="ariel.laurella@imtglobalinc.com"
+               subjectExpression="This is the subject of the e-mail"
+    >
+        <transition condition="${userEmailAddress != null}">
+            <targetStepName>delay ten seconds</targetStepName>
+        </transition>
+        <body>
+            <![CDATA[
+
+Hello,
+
+This is a test e-mail from Reach Engine.
+
+
+			]]>
+        </body>
+    </emailStep>
+
+    <delayStep name="delay ten seconds"
+               delaySecondsExpression="10"
+               nextStep="print to screen"
+    />
+
+    <noopStep name="print to screen"
+              executionLabelExpression="We waited 10 seconds"
+              nextStep="end"
+    />
+
+    <noopStep name="end"/>
+
+
+    <contextDataDef name="userEmailAddress" dataType="String" defaultDataExpression="${#this.startedBy.emailAddress}"/>
+
+
+    <contextDataDef name="testcontexData" dataType="String"
+
+</workflow>
