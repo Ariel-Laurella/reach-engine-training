@@ -18,7 +18,7 @@ It devives from _anyDirectoryIngest.xml workflow.
     sdkVersion="5.21"
 	>
 
-	<initialStepName>check if workflow is running</initialStepName>
+	<initialStepName>get metadata from csv</initialStepName>
 	
 	
 	<!-- ................................................... Initial Checks .................................................... -->
@@ -103,99 +103,102 @@ It devives from _anyDirectoryIngest.xml workflow.
 	</queryStep>
 
 
-<!-- TODO: make grroovy spet top parse json returned by the following script-->
-<!--
-	// Convert csv to Json format
-	import groovy.json.JsonSlurper
-	import jdk.nashorn.internal.ir.debug.JSONWriter
+	<groovyStep	name="get metadata from csv"
+				resultDataDef="jsonMetadata"
+				executionLabelExpression="getting metadata from csv to json"
+				nextStep="sendEmail"
+	>
+		<script>
+			<![CDATA[
+			// Convert csv to Json format
 
+			import groovy.json.JsonOutput
+			import groovy.json.JsonSlurper
 
-	//def csvFile = 'C:\\Temp\\sample-csv-imt - Sheet1.csv'
-	//def jsonFile = 'C:\\Temp\\sample-key-mapping-imt.json'
-	//def filesDirectory = 'C:\\Video'
+			def csvFile = csvMetadataFile.absolutePath
+			def jsonFile = jsonMappingFile.absolutePath
+			//def csvFile = 'C:\\Temp\\sample-csv-imt - Sheet1.csv'
+			//def jsonFile = 'C:\\Temp\\sample-key-mapping-imt.json'
 
+			File csvFileToProcess = new File(csvFile)
+			File jsonFileToProcess = new File(jsonFile)
 
-	File csvFileToProcess = new File(csvFile)
-	File jsonFileToProcess = new File(jsonFile)
+			def jsonMappingSlurper = new JsonSlurper()
+			def jsonListSlurper = new JsonSlurper()
+			def digestedCsvRows = new ArrayList()
+			def reachFieldNames = new ArrayList()
+			def csvColumnPosition = new ArrayList()
+			def csvRows = new ArrayList()
+			def jsonMappingelemnts = [:]
+			def csvHeaderFilename = "fileName"
 
-	def jsonMappingSlurper = new JsonSlurper()
-	def jsonListSlurper = new JsonSlurper()
-	def digestedCsvRows = new ArrayList()
-	def reachFieldNames = new ArrayList()
-	def csvColumnPosition = new ArrayList()
-	def csvRows = new ArrayList()
-	def jsonMappingelemnts = [:]
-	def csvHeaderFilename = "fileName"
+			//Parse scv file
+			csvFileToProcess.eachLine {
+				// 'it' is the line in the text file
+				csvRows.add(it)
+			}
 
+			//save reachFieldNames from the Json mapping
+			def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+			jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
 
-	//Parse scv file
-	csvFileToProcess.eachLine {
-	// 'it' is the line in the text file
-	csvRows.add(it)
-	}
+			for (int i = 0; i < jsonMappingelemnts.size(); i++) {
+				for (int j = 0; j < csvHeader.size(); j++)
+				{
+					 if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
+					 {
+						reachFieldNames.add(jsonMappingelemnts.values()[i])
+						csvColumnPosition.add(j)
+					 }
+					if (csvHeader[j] == csvHeaderFilename && i == 0)
+					{
+						reachFieldNames.add(csvHeaderFilename)
+						csvColumnPosition.add(j)
+					}
+				}
+			}
 
-	//save reachFieldNames from the Json mapping
-	def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
-	jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
+			//remove HeaderRow from array csvRows
+			csvRows.remove(0)
 
-	for (int i = 0; i < jsonMappingelemnts.size(); i++) {
-	for (int j = 0; j < csvHeader.size(); j++)
-	{
-	if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
-	{
-	reachFieldNames.add(jsonMappingelemnts.values()[i])
-	csvColumnPosition.add(j)
-	}
-	if (csvHeader[j] == csvHeaderFilename && i == 0)
-	{
-	reachFieldNames.add(csvHeaderFilename)
-	csvColumnPosition.add(j)
-	}
-	}
+			// start looping over the lines in the CSV
+			def rowCounter = 0
 
-	}
+			for (def row in csvRows){
+				rowCounter++
+				Map singleLineResult = [:]  // this will be the return for this loop execution
 
-	//remove HeaderRow from array csvRows
-	csvRows.remove(0)
+				if (row == null || !row.contains(",") ){
+					continue
+				}
 
+				//def splitRow = row.split(",")
+				def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
 
+				for (int j = 0; j < csvColumnPosition.size(); j++)
+				{
+					def rowValue
+					try {
+						  rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
+					}
+					catch (Exception e)
+					{
+						  rowValue = ""
+					}
 
-	// start looping over the lines in the CSV
-	def rowCounter = 0
+					singleLineResult.put(reachFieldNames[j], rowValue)
+				}
+				digestedCsvRows.add(singleLineResult)
 
-	for (def row in csvRows){
-	rowCounter++
-	Map singleLineResult = [:]  // this will be the return for this loop execution
+			}
 
-	if (row == null || !row.contains(",") ){
-	continue
-	}
+			//return JsonOutput.toJson(digestedCsvRows)
+			return digestedCsvRows
 
-	//def splitRow = row.split(",")
-	def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+    		 ]]>
+		</script>
+	</groovyStep>
 
-
-
-	for (int j = 0; j < csvColumnPosition.size(); j++)
-	{
-	def rowValue
-	try {
-	rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
-	}
-	catch (Exception e)
-	{
-	rowValue = ""
-	}
-
-	singleLineResult.put(reachFieldNames[j], rowValue)
-	}
-	digestedCsvRows.add(singleLineResult)
-
-	}
-
-	return digestedCsvRows
-
--->
 
 
 
@@ -205,10 +208,10 @@ It devives from _anyDirectoryIngest.xml workflow.
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
 			   	subjectExpression="I'm just writing to say.."
-				nextStep="process files"
+				nextStep="end"
 	>
 		<body>
-			<![CDATA[    Cantidad de files: ${filesToIngest.size()}  ]]>
+			<![CDATA[    ${jsonMetadata.toString()}  ]]>
 		</body>
 	</emailStep>
 
@@ -282,6 +285,7 @@ It devives from _anyDirectoryIngest.xml workflow.
 	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="true" displayIndex="2" />
 	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="true" displayIndex="3" />
 
+	<contextDataDef name="jsonMetadata" 			dataType="JSON"
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
 
@@ -367,10 +371,5 @@ It devives from _anyDirectoryIngest.xml workflow.
 			Valid types = "access" or "panel"
 		</description>
 	</contextDataDef>
-
-
-
-
-
 
 </workflow>

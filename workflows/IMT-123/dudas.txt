@@ -2,6 +2,8 @@ Frase para poner en los flujos que modifiqué de LB:
 This is fair use of original workflow xxxx (_xxxx.xml) , property of Levels Beyond Inc. 
 
 
+sacar lineas documentadas de los groovies
+
 debería borrar los files de la entrada despues de ingestarlos?
 
 no toma el aac como audio, 
@@ -12,11 +14,11 @@ que recomienda cuando reutilizo workflows existentes? les cambio el nombre y los
 
 como puedo ver si existe un campo o si debo crearlo. 
 
-como puedo obtener el valor de un campo.
+como puedo obtener el valor de un campo. Metabrowser, Assetmaster.
 
-como obtengo el id 
+como busco un asset pot el el recordOID
 
-update metadata
+and how to make an update of metadata.
 
 especialmente cómo agrego metadatos en keywords
 
