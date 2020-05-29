@@ -1,7 +1,7 @@
 <!--
 This workflow is inteded to ingest files, creating new asset and fill metadata according to a given CSV.
 It devives from _anyDirectoryIngest.xml workflow.
-
+.
 -->
 
 <workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -18,7 +18,7 @@ It devives from _anyDirectoryIngest.xml workflow.
     sdkVersion="5.21"
 	>
 
-	<initialStepName>get metadata from csv</initialStepName>
+	<initialStepName>copy csv from S3 to Local</initialStepName>
 	
 	
 	<!-- ................................................... Initial Checks .................................................... -->
@@ -103,105 +103,129 @@ It devives from _anyDirectoryIngest.xml workflow.
 	</queryStep>
 
 
+	<copyFileStep name="copy csv from S3 to Local"
+				  executionLabelExpression="copy csv file from S3 to Local Reachengine"
+				  sourceFileExpression="${csvMetadataFile}"
+				  targetDirectoryExpression="${localDirectoryPath}/${uuid}"
+				  targetFilenameExpression="${uuid}.csv"
+				  createTargetDirectoryFlag="true"
+				  nextStep="copy json from S3 to Local" />
+
+
+	<copyFileStep name="copy json from S3 to Local"
+				  executionLabelExpression="copy json from S3 to Local Reachengine"
+				  sourceFileExpression="${jsonMappingFile}"
+				  targetDirectoryExpression="${localDirectoryPath}/${uuid}"
+				  targetFilenameExpression="${uuid}.json"
+				  nextStep="get metadata from csv" />
+
+
 	<groovyStep	name="get metadata from csv"
 				resultDataDef="jsonMetadata"
 				executionLabelExpression="getting metadata from csv to json"
-				nextStep="sendEmail"
+				nextStep="delete local csv and json"
 	>
 		<script>
 			<![CDATA[
-			// Convert csv to Json format
+
+		// Convert csv to Json format
 
 			import groovy.json.JsonOutput
 			import groovy.json.JsonSlurper
 
-			def csvFile = csvMetadataFile.absolutePath
-			def jsonFile = jsonMappingFile.absolutePath
-			//def csvFile = 'C:\\Temp\\sample-csv-imt - Sheet1.csv'
-			//def jsonFile = 'C:\\Temp\\sample-key-mapping-imt.json'
+def jsonMappingPath = localDirectoryPath + "/"+ uuid + "/"+ uuid + ".json"
+def csvMetadataPath = localDirectoryPath +"/" + uuid + "/"+ uuid + ".csv"
+def jsonMappingSlurper = new JsonSlurper()
+def jsonListSlurper = new JsonSlurper()
+def digestedCsvRows = new ArrayList()
+def reachFieldNames = new ArrayList()
+def csvColumnPosition = new ArrayList()
+def csvRows = new ArrayList()
+def jsonMappingelemnts = [:]
+def csvHeaderFilename = "fileName"
+def sCurrentLine
 
-			File csvFileToProcess = new File(csvFile)
-			File jsonFileToProcess = new File(jsonFile)
+File jsonFileToProcess = new File(jsonMappingPath)
+File csvFileToProcess = new File(csvMetadataPath)
 
-			def jsonMappingSlurper = new JsonSlurper()
-			def jsonListSlurper = new JsonSlurper()
-			def digestedCsvRows = new ArrayList()
-			def reachFieldNames = new ArrayList()
-			def csvColumnPosition = new ArrayList()
-			def csvRows = new ArrayList()
-			def jsonMappingelemnts = [:]
-			def csvHeaderFilename = "fileName"
+//Parse scv file
+csvFileToProcess.eachLine {
+    csvRows.add(it)
+}
 
-			//Parse scv file
-			csvFileToProcess.eachLine {
-				// 'it' is the line in the text file
-				csvRows.add(it)
-			}
 
-			//save reachFieldNames from the Json mapping
-			def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
-			jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
+//save reachFieldNames from the Json mapping
+def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
 
-			for (int i = 0; i < jsonMappingelemnts.size(); i++) {
-				for (int j = 0; j < csvHeader.size(); j++)
-				{
-					 if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
-					 {
-						reachFieldNames.add(jsonMappingelemnts.values()[i])
-						csvColumnPosition.add(j)
-					 }
-					if (csvHeader[j] == csvHeaderFilename && i == 0)
-					{
-						reachFieldNames.add(csvHeaderFilename)
-						csvColumnPosition.add(j)
-					}
-				}
-			}
+for (int i = 0; i < jsonMappingelemnts.size(); i++) {
+    for (int j = 0; j < csvHeader.size(); j++)
+    {
+         if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
+         {
+            reachFieldNames.add(jsonMappingelemnts.values()[i])
+            csvColumnPosition.add(j)
+         }
+        if (csvHeader[j] == csvHeaderFilename && i == 0)
+        {
+            reachFieldNames.add(csvHeaderFilename)
+            csvColumnPosition.add(j)
+        }
+    }
 
-			//remove HeaderRow from array csvRows
-			csvRows.remove(0)
+}
 
-			// start looping over the lines in the CSV
-			def rowCounter = 0
+//remove HeaderRow from array csvRows
+csvRows.remove(0)
 
-			for (def row in csvRows){
-				rowCounter++
-				Map singleLineResult = [:]  // this will be the return for this loop execution
 
-				if (row == null || !row.contains(",") ){
-					continue
-				}
 
-				//def splitRow = row.split(",")
-				def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
+// start looping over the lines in the CSV
+def rowCounter = 0
 
-				for (int j = 0; j < csvColumnPosition.size(); j++)
-				{
-					def rowValue
-					try {
-						  rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
-					}
-					catch (Exception e)
-					{
-						  rowValue = ""
-					}
+for (def row in csvRows){
+    rowCounter++
+    Map singleLineResult = [:]  // this will be the return for this loop execution
 
-					singleLineResult.put(reachFieldNames[j], rowValue)
-				}
-				digestedCsvRows.add(singleLineResult)
+    if (row == null || !row.contains(",") ){
+        continue
+    }
 
-			}
+    //def splitRow = row.split(",")
+    def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
 
-			//return JsonOutput.toJson(digestedCsvRows)
-			return digestedCsvRows
 
-    		 ]]>
+
+    for (int j = 0; j < csvColumnPosition.size(); j++)
+    {
+        def rowValue
+        try {
+              rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
+        }
+        catch (Exception e)
+        {
+              rowValue = ""
+        }
+
+        singleLineResult.put(reachFieldNames[j], rowValue)
+    }
+    digestedCsvRows.add(singleLineResult)
+
+}
+
+//return JsonOutput.toJson(digestedCsvRows)
+return digestedCsvRows
+
+       ]]>
 		</script>
 	</groovyStep>
 
-
-
-
+	<deleteFileStep name="delete local csv and json"
+					executionLabelExpression="deleting temp path: ${localDirectoryPath}/${uuid}"
+					sourceFilesExpression="${localDirectoryPath}/${uuid}"
+					continueOnException="true"
+					nextStep="sendEmail"
+	/>
 
 
 	<!-- TODO: here I should send 11 files at most and 4 file at least? -->
@@ -281,13 +305,16 @@ It devives from _anyDirectoryIngest.xml workflow.
 	<!-- ............................................... Context Data Defs ................................................ -->
 
 	<!-- ....... User Input Variables ........ -->
-	<contextDataDef name="directoryToIngest" 		dataType="Directory"	userInput="true"    label="Directory To Ingest"  required="true" displayIndex="1" />
-	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="true" displayIndex="2" />
-	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="true" displayIndex="3" />
+	<contextDataDef name="directoryToIngest" 		dataType="Directory"	userInput="true"    label="Directory To Ingest"  required="false" displayIndex="1" />
+	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="false" displayIndex="2" />
+	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="false" displayIndex="3" />
 
-	<contextDataDef name="jsonMetadata" 			dataType="JSON"
+	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
+
+	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
+	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
 
 
 	<!-- .......... Input Variables .......... -->
