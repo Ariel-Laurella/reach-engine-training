@@ -19,7 +19,7 @@
 	xmlns="http://levelsbeyond.com/schema/workflow"
 	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
 	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
-    id="_createDocumentProxies"
+    id="documentProxiesCreate"
     name="Create Document Proxies"
     executionLabelExpression="Create Document Proxies | Asset Name: ${subject.name}"
     description=""

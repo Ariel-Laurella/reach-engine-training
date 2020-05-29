@@ -1,3 +1,5 @@
+
+
 Frase para poner en los flujos que modifiqué de LB:
 This is fair use of original workflow xxxx (_xxxx.xml) , property of Levels Beyond Inc. 
 
@@ -8,11 +10,11 @@ debería borrar los files de la entrada despues de ingestarlos?
 
 no toma el aac como audio, 
 
+revisar proxy failed para documentos:  no termina nunca el porceso
 
+verificar si se repite el mismo file en la lista entonces invalidarlos. 
 
-que recomienda cuando reutilizo workflows existentes? les cambio el nombre y los instalo por si en el otro entorno los modificaron?
-
-como puedo ver si existe un campo o si debo crearlo. 
+como puedo ver si existe un campo o si debo crearlo. :  
 
 como puedo obtener el valor de un campo. Metabrowser, Assetmaster.
 
@@ -20,9 +22,9 @@ como busco un asset pot el el recordOID
 
 and how to make an update of metadata.
 
-especialmente cómo agrego metadatos en keywords
+collection and category son los campos existenten. no son campos nuevos.
 
-
+I made the mistake creating a wrong field ptoxyTriege instead of proxyTriage.  
 
 
 

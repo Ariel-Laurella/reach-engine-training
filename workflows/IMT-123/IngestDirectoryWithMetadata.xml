@@ -18,7 +18,9 @@ It devives from _anyDirectoryIngest.xml workflow.
     sdkVersion="5.21"
 	>
 
-	<initialStepName>copy csv from S3 to Local</initialStepName>
+	<!-- TODO put check if workflow is running as initialStep -->
+
+	<initialStepName>check if directory is empty</initialStepName>
 	
 	
 	<!-- ................................................... Initial Checks .................................................... -->
@@ -64,44 +66,12 @@ It devives from _anyDirectoryIngest.xml workflow.
 		executionLabelExpression="are there files in the directory? ${filesToIngest != null AND filesToIngest.size() &gt; 0}"
 		>
 		<transition condition="${filesToIngest != null AND filesToIngest.size() &gt; 0}">
-			<targetStepName>query for running subflows</targetStepName>
+			<targetStepName>copy csv from S3 to Local</targetStepName>
 		</transition>
 		<transition condition="true">
 			<targetStepName>no files to process</targetStepName>
 		</transition>
 	</noopStep>
-
-	<!-- ................................................... Queue Loop ................................................... -->
-	<queryStep name="query for running subflows"
-			   targetDataObjectClass="WorkflowExecution"
-			   resultDataDef="executingSubflows"
-			   executionLabelExpression="checking for workflows (with name = ${subflowName}) that match this directory that are also not in a finished state"
-			   devStep="false"
-			   nextStep="sendEmail"
-	>
-		<criteria>
-			<![CDATA[
-            <criteria>
-                <and>
-                    <condition property="workflowVersion.workflow.key" op="eq">
-                        <test value="${ingestSubflow}"/>
-                    </condition>
-                    <condition property="executionLabel" op="like">
-							<test value="%${T(org.apache.commons.lang.StringEscapeUtils).escapeXml(directoryToIngest.absolutePath)}%" />
-						</condition>
-                    <condition property="status" op="in">
-                        <tests>
-                            <test value="CREATED" />
-                            <test value="QUEUED" />
-                            <test value="EXECUTING" />
-                         </tests>
-                    </condition>
-                </and>
-            </criteria>
-            ]]>
-		</criteria>
-	</queryStep>
-
 
 	<copyFileStep name="copy csv from S3 to Local"
 				  executionLabelExpression="copy csv file from S3 to Local Reachengine"
@@ -121,9 +91,9 @@ It devives from _anyDirectoryIngest.xml workflow.
 
 
 	<groovyStep	name="get metadata from csv"
-				resultDataDef="jsonMetadata"
-				executionLabelExpression="getting metadata from csv to json"
-				nextStep="delete local csv and json"
+				   resultDataDef="jsonMetadata"
+				   executionLabelExpression="getting metadata from csv to json"
+				   nextStep="delete local csv and json"
 	>
 		<script>
 			<![CDATA[
@@ -179,7 +149,6 @@ for (int i = 0; i < jsonMappingelemnts.size(); i++) {
 csvRows.remove(0)
 
 
-
 // start looping over the lines in the CSV
 def rowCounter = 0
 
@@ -209,6 +178,10 @@ for (def row in csvRows){
 
         singleLineResult.put(reachFieldNames[j], rowValue)
     }
+    singleLineResult.put("proxyTriage","false")
+    singleLineResult.put("success","")
+    singleLineResult.put("message","")
+
     digestedCsvRows.add(singleLineResult)
 
 }
@@ -224,30 +197,51 @@ return digestedCsvRows
 					executionLabelExpression="deleting temp path: ${localDirectoryPath}/${uuid}"
 					sourceFilesExpression="${localDirectoryPath}/${uuid}"
 					continueOnException="true"
-					nextStep="sendEmail"
+					nextStep="query for running subflows"
 	/>
 
 
-	<!-- TODO: here I should send 11 files at most and 4 file at least? -->
 
-	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
-			   	subjectExpression="I'm just writing to say.."
-				nextStep="end"
+	<!-- ................................................... Queue Loop ................................................... -->
+	<queryStep name="query for running subflows"
+			   targetDataObjectClass="WorkflowExecution"
+			   resultDataDef="executingSubflows"
+			   executionLabelExpression="checking for workflows (with name = ${subflowName}) that match this directory that are also not in a finished state"
+			   devStep="false"
+			   nextStep="process files"
 	>
-		<body>
-			<![CDATA[    ${jsonMetadata.toString()}  ]]>
-		</body>
-	</emailStep>
-
+		<criteria>
+			<![CDATA[
+            <criteria>
+                <and>
+                    <condition property="workflowVersion.workflow.key" op="eq">
+                        <test value="${ingestSubflow}"/>
+                    </condition>
+                    <condition property="executionLabel" op="like">
+							<test value="%${T(org.apache.commons.lang.StringEscapeUtils).escapeXml(directoryToIngest.absolutePath)}%" />
+						</condition>
+                    <condition property="status" op="in">
+                        <tests>
+                            <test value="CREATED" />
+                            <test value="QUEUED" />
+                            <test value="EXECUTING" />
+                         </tests>
+                    </condition>
+                </and>
+            </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
 
 
 	<executeSubflowStep name="process files"
 						executionLabelExpression="Ingesting ${filesToIngest.size()} Files"
 						targetWorkflowId="${ingestSubflow}"
-						subjectChangePath="${filesToIngest}"
+						subjectChangePath="${filesToIngest[1]}"
 						subflowTargetDataDef="fileToIngest"
-						waitForCompletionExpression="false"
-						nextStep="end"
+						resultDataDef="jsonMetadata"
+						waitForCompletionExpression="true"
+						nextStep="sendEmail"
 	>
 		<!-- ingest -->
 		<subflowContextDataMapping parentDataDef="sourceAsMezz"             subflowDataDef="sourceAsMezz"/>
@@ -279,7 +273,46 @@ return digestedCsvRows
 		<subflowContextDataMapping parentDataDef="imageThumbArguments"      subflowDataDef="imageThumbArguments"/>
 		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
 		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
+		<subflowContextDataMapping parentDataDef="jsonMetadata"   			subflowDataDef="jsonMetadata"/>
+
 	</executeSubflowStep>
+
+
+	<queryStep name="query for recordOID"
+			   executionLabelExpression="Querying"
+			   targetDataObjectClass="AssetMaster"
+			   resultDataDef="resultObject"
+
+	>
+		<transition condition="${resultObject != null}">
+			<targetStepName>sendEmail</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="metadata.recordOID" op="eq">
+                            <test value="${recordNumber}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
+
+	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
+				  subjectExpression="I'm just writing to say.."
+				  nextStep="end"
+	>
+		<body>
+			<![CDATA[    ${resultObject.metadata.longDescription}  ]]>
+		</body>
+	</emailStep>
+
 
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
@@ -293,8 +326,8 @@ return digestedCsvRows
 	
 	
 	<noopStep name="end"    pctComplete="100"/>
-	
-	
+
+
 	<!-- fail -->
 	<failWorkflowStep name="workflow is running"
 		executionLabelExpression="Workflow already executing on the directory"
@@ -315,6 +348,10 @@ return digestedCsvRows
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
+
+	<contextDataDef name="resultObject" dataType="Data Object" />
+
+
 
 
 	<!-- .......... Input Variables .......... -->
@@ -366,6 +403,8 @@ return digestedCsvRows
 
 
 <!-- TODO: These variables must be removed -->
+
+	<contextDataDef name="recordNumber" dataType="String" defaultDataExpression="100201"  />
 
 
 	<contextDataDef name="collections"              dataType="Data Object"  label="Collections"          multiple="true" />

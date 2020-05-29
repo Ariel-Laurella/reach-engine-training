@@ -7,6 +7,8 @@ Last Updated By: Ariel Laurella of IMT, 2020-05-30
 
 ##Use case 
 
+Explicar como es la operativa desde el UI
+
 This workflow is exceuted by 
 
 should send 11 files at most and 4 file at least
@@ -14,6 +16,11 @@ should send 11 files at most and 4 file at least
 input:  UI and input fileds , and input files included CSV as metadata file and JSON file as metadata mapping.
 output:  Expected success and fail
 
+Expresar cual es la ruta local a setear en RE para CSV y JSON
+
+Esto est{a preparado para trabajar con S3. 
+
+Colocar el procedimiento para crear los campos de metadata necesarios, dea cuerdo al mapping json
 
 
 ## Workflow: xxxx
@@ -34,27 +41,26 @@ This workflow is inteded to ...
 
 ## Import Order
 
+ingestAssetBase
+documentProxiesCreate
+imageProxiesCreate
+audioProxiesCreate
+videoProxiesCreate
+proxiesAssetCreate
 2.saveAssetMetadata
 3.ingestAssetBase
-4.ingestAssetWithMetadata
-5.ingestDirectoryWithMetadata
+4.IngestAssetWithMetadata
+5.IngestDirectoryWithMetadata
 
 
 I decided to customize all dependences and use standard. 
-I reused some code from standard workflows
+I reused some code from standard workflows provided by Lebels Beyond Inc.
 
 ##dependencias:
 
 The following workflows are dependencies of ingestAssetWithMetadata. They are included in the package, but not needed to import if they still exists
 in the target environment.
 
-_baseAssetIngest
-_createProxiesAnyAsset
-_createVideoProxies
-_createThumbnailVideo
-_createImageProxies
-_createAudioProxy
-_createDocumentProxies
 
 
 
@@ -68,3 +74,60 @@ _createDocumentProxies
 7. hallmarkLabs.backlot.aspera.password
 
 ## Notes For Go-Live
+
+
+
+
+Specification for the new metadata fields:
+
+
+
+
+
+Once you define a metadata field, It is not posible to modifiy Id, name and type. If that occurs, you only need to chenge values in the json mapping file. 
+Create the following metadata fiels. Be sure to put excactly Display Name and type, so you will see the name of the fields just like in the json mapping file of the specification. 
+
+Display Name:	recordOID
+Type: 			Text(Samll)
+
+Display Name:	weekID
+Type: 			Text(Samll)
+
+Display Name:	Event Location
+Type: 			Picklist
+Configuration: 	Single
+
+Display Name: 	Long Description
+Type: 			Text(Large)
+
+Display Name: 	Short Description
+Type: 			Text(Samll)
+
+Display Name: 	keywords
+Type: 			Picklist
+Configuration: 	Multiple
+
+Display Name: 	Pre Validated
+Type: 			Checkbox
+
+Display Name: 	Proxy Triage
+Type: 			Checkbox
+
+
+
+
+
+
+Create a new default collection: orphaned
+
+Add a new category.
+Display Name: no department
+Description: This is the defaul category for those content with has no department
+
+
+
+
+
+
+
+

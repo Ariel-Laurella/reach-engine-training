@@ -19,12 +19,12 @@
 	xmlns="http://levelsbeyond.com/schema/workflow"
 	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
 	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
-    id="_createProxiesAnyAsset"
-    name="Create Proxies Any Asset"
+    id="proxiesAssetCreate"
+    name="Proxies Asset Create"
     executionLabelExpression="Create Proxies Any Asset | Asset Type: ${subject.assetType} | Asset Name: ${subject.name}"
     description=""
     subjectDOClassName="AssetMaster"
-    showInUserInterface="true"
+    showInUserInterface="false"
     resultDataDef=""
     deadlineExpression=""
     sdkVersion="5.21"
@@ -61,7 +61,9 @@
         targetWorkflowId="${videoProxySubflow}"
         subjectChangePath="${subject}"
         pctComplete="95"
+
         nextStep="end"
+
         >
 	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
 	    <subflowContextDataMapping parentDataDef="mezzFile"                 subflowDataDef="mezzFile"/>
@@ -84,7 +86,7 @@
         targetWorkflowId="${audioProxySubflow}"
         subjectChangePath="${subject}"
         pctComplete="99"
-        nextStep="end"    
+        nextStep="set failOnError true"
         >
 	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
 	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
@@ -93,7 +95,13 @@
 	    <subflowContextDataMapping parentDataDef="audioProxyTemplate"       subflowDataDef="proxyTemplate"/>
     </executeSubflowStep>
 
-	
+	<setContextData name="set failOnError true"
+					targetDataDef="failOnError"
+					valueExpression="true"
+					nextStep="end"
+					/>
+
+
     <executeSubflowStep name="create image proxies"
         targetWorkflowId="${imageProxySubflow}"
         subjectChangePath="${subject}"
@@ -176,8 +184,8 @@
 	<contextDataDef name="documentThumbArguments"   dataType="String"/>
 	
 	<!-- .......... Processing variables .......... -->
-	<contextDataDef name="videoProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.video.workflow') != null? #sysconfig('workflows.default.proxies.video.workflow') : '_createVideoProxies'}"/>
-	<contextDataDef name="audioProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.audio.workflow') != null? #sysconfig('workflows.default.proxies.audio.workflow') : '_createAudioProxy'}"/>
-	<contextDataDef name="imageProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.image.workflow') != null? #sysconfig('workflows.default.proxies.image.workflow') : '_createImageProxies'}"/>
-	<contextDataDef name="documentProxySubflow"     dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.document.workflow') != null? #sysconfig('workflows.default.proxies.document.workflow') : '_createDocumentProxies'}"/>
+	<contextDataDef name="videoProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.video.workflow') != null? #sysconfig('workflows.default.proxies.video.workflow') : 'videoProxiesCreate'}"/>
+	<contextDataDef name="audioProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.audio.workflow') != null? #sysconfig('workflows.default.proxies.audio.workflow') : 'audioProxiesCreate'}"/>
+	<contextDataDef name="imageProxySubflow"        dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.image.workflow') != null? #sysconfig('workflows.default.proxies.image.workflow') : 'imageProxiesCreate'}"/>
+	<contextDataDef name="documentProxySubflow"     dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.document.workflow') != null? #sysconfig('workflows.default.proxies.document.workflow') : 'documentProxiesCreate'}"/>
 </workflow>

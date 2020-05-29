@@ -22,7 +22,7 @@
 		http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-5.17.xsd
 		http://levelsbeyond.com/schema/workflow/nimbus http://www.levelsbeyond.com/schema/production/nimbus-common-workflow-1.11.xsd
 	"
-    id="createProxiesAsset"
+    id="videoProxiesCreate"
     name="Create Video Proxies for Asset"
     executionLabelExpression="Create Video Proxies | asset: ${subject.name}"
     description=""

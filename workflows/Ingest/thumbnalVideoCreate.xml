@@ -18,7 +18,7 @@
 <workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xmlns="http://levelsbeyond.com/schema/workflow"
           xsi:schemaLocation="http://levelsbeyond.com/schema/workflow http://www.levelsbeyond.com/schema/workflow-4.9.xsd"
-          id="_createThumbnailVideo"
+          id="thumbnalVideoCreate"
           name="Create Thumbnail Video"
           executionLabelExpression="Create thumbails of video ${subject.name}"
           description=""

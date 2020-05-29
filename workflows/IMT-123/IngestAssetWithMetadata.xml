@@ -13,14 +13,16 @@ It devives from _anyAssetIngest.xml workflow.
 	executionLabelExpression="Ingest Asset With Metadata | File: ${fileToIngest.absolutePath}"
 	description=""
 	subjectDOClassName=""
-	resultDataDef="assetMaster"
+	resultDataDef="jsonMetadata"
 	deadlineExpression=""
 	showInUserInterface="false"
 	sdkVersion="5.21"
 	>
 	
 	<initialStepName>check if workflow is running</initialStepName>
-	
+
+
+
 	<queryStep name="check if workflow is running"
 		targetDataObjectClass="WorkflowExecution"
 		resultDataDef="currentExecutions"
@@ -77,8 +79,11 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="overwriteExisting"        subflowDataDef="overwriteExisting"/>
 		<subflowContextDataMapping parentDataDef="versionDuplicate"         subflowDataDef="versionDuplicate"/>
 	</executeSubflowStep>
-	
-	
+
+
+
+
+
 	<executeSubflowStep name="set metadata"
 		targetWorkflowId="${metadataSubflow}"
 		subjectChangePath="${assetMaster}"
@@ -96,15 +101,15 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
 		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
 	</executeSubflowStep>
-	
-	
+
+
 	<executeSubflowStep name="create proxies"
 		targetWorkflowId="${proxiesSubflow}"
 		subjectChangePath="${assetMaster}"
 		waitForCompletionExpression="${!asyncProxies}"
 		executionLabelExpression="Creating proxies ${asyncProxies? 'asynchronous' : 'synchronous'}"
 		pctComplete="99"
-		nextStep="end"
+		nextStep="set proxyTriage flag"
 		>
 		<subflowContextDataMapping parentDataDef="failOnProxiesError"       subflowDataDef="failOnError"/>
 		<!-- create -->
@@ -129,8 +134,26 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
 		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
 	</executeSubflowStep>
-	
-	
+
+
+
+
+	<saveDataObjectStep name="set proxyTriage flag"
+						dataObjectExpression="${assetMaster.metadata}"
+						executionLabelExpression="setting proxyTriage metadata checkbox to true"
+						nextStep="set jsonMetadata"
+	>
+		<property name="proxyTriage">${failOnProxiesError}</property>
+	</saveDataObjectStep>
+
+
+
+<setContextData name="set jsonMetadata"
+				executionLabelExpression="modifying jsonMetadata"
+				targetDataDef="jsonMetadata"
+				valueExpression="{'posterUrl': 'https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg','height': 1080,'width': 1920}"
+				nextStep="end" />
+
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
 
@@ -159,6 +182,8 @@ It devives from _anyAssetIngest.xml workflow.
 	
 	<!-- .......... Input Variables .......... -->
 	<!-- metadata options -->
+
+
 	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>
 	<contextDataDef name="categories"               dataType="Data Object"      multiple="true"/>
 	<contextDataDef name="categoryNames"            dataType="String"           multiple="true"/>
@@ -198,7 +223,7 @@ It devives from _anyAssetIngest.xml workflow.
 	</contextDataDef>
 	<!-- transcode options -->
 	<contextDataDef name="failOnProxiesError"       dataType="Boolean"/>
-	<contextDataDef name="asyncProxies"             dataType="Boolean"          defaultDataExpression="${asyncProxiesFlag ?: (#sysconfig('workflows.default.ingestAsset.asyncProxies') ?: true)}"/>
+	<contextDataDef name="asyncProxies"             dataType="Boolean"          defaultDataExpression="${asyncProxiesFlag ?: (#sysconfig('workflows.default.ingestAsset.asyncProxies') ?: false)}"/>
 	<!-- create proxies? (defaults in subflows) -->
 	<contextDataDef name="prioritiesJson"           dataType="JSON">
 		<description>
@@ -229,9 +254,9 @@ It devives from _anyAssetIngest.xml workflow.
 	<!-- ....... Processing Variables ........ -->
 	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	    multiple="true"/>
 	<contextDataDef name="assetMaster" 			    dataType="Data Object"/>
-	<contextDataDef name="ingestSubflow"            dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.sourceIngestWorkflow') ?: '_baseAssetIngest'}"/>
+	<contextDataDef name="ingestSubflow"            dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.sourceIngestWorkflow') ?: 'ingestAssetBase'}"/>
 	<contextDataDef name="metadataSubflow"          dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.metadataWorkflow') ?: 'saveAssetMetadata'}"/>
-	<contextDataDef name="proxiesSubflow"           dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.proxiesWorkflow') ?: '_createProxiesAnyAsset'}"/>
+	<contextDataDef name="proxiesSubflow"           dataType="String"           defaultDataExpression="${#sysconfig('workflows.default.ingestAsset.proxiesWorkflow') ?: 'proxiesAssetCreate'}"/>
 	
 	<!-- ..... Deprecated But Supported ...... -->
 	<contextDataDef name="assetForVersioning"       dataType="Data Object"/>
