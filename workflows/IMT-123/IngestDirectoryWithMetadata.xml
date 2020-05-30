@@ -19,7 +19,6 @@ It devives from _anyDirectoryIngest.xml workflow.
 	>
 
 	<!-- TODO put check if workflow is running as initialStep -->
-
 	<initialStepName>check if directory is empty</initialStepName>
 	
 	
@@ -91,7 +90,7 @@ It devives from _anyDirectoryIngest.xml workflow.
 
 
 	<groovyStep	name="get metadata from csv"
-				   resultDataDef="jsonMetadata"
+				   resultDataDef="jsonMetadataFull"
 				   executionLabelExpression="getting metadata from csv to json"
 				   nextStep="delete local csv and json"
 	>
@@ -105,6 +104,7 @@ It devives from _anyDirectoryIngest.xml workflow.
 
 def jsonMappingPath = localDirectoryPath + "/"+ uuid + "/"+ uuid + ".json"
 def csvMetadataPath = localDirectoryPath +"/" + uuid + "/"+ uuid + ".csv"
+
 def jsonMappingSlurper = new JsonSlurper()
 def jsonListSlurper = new JsonSlurper()
 def digestedCsvRows = new ArrayList()
@@ -182,6 +182,7 @@ for (def row in csvRows){
     singleLineResult.put("success","")
     singleLineResult.put("message","")
 
+
     digestedCsvRows.add(singleLineResult)
 
 }
@@ -234,6 +235,13 @@ return digestedCsvRows
 	</queryStep>
 
 
+	<!-- get posible number of files to ingest -->
+
+
+
+
+
+
 	<executeSubflowStep name="process files"
 						executionLabelExpression="Ingesting ${filesToIngest.size()} Files"
 						targetWorkflowId="${ingestSubflow}"
@@ -274,8 +282,13 @@ return digestedCsvRows
 		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
 		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
 		<subflowContextDataMapping parentDataDef="jsonMetadata"   			subflowDataDef="jsonMetadata"/>
-
 	</executeSubflowStep>
+
+
+	<delayStep 	name="wait some time loop1"
+			   	delaySecondsExpression="10"
+				nextStep="end"
+	/>
 
 
 	<queryStep name="query for recordOID"
@@ -343,6 +356,7 @@ return digestedCsvRows
 	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="false" displayIndex="3" />
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
+	<contextDataDef name="jsonMetadataFull" 		dataType="JSON" />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
 
@@ -350,7 +364,6 @@ return digestedCsvRows
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
 
 	<contextDataDef name="resultObject" dataType="Data Object" />
-
 
 
 
@@ -393,6 +406,11 @@ return digestedCsvRows
 	<!-- ....... Processing Variables ........ -->
 	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	multiple="true"/>
 	<contextDataDef name="filesToIngest" 		    dataType="File"		    multiple="true"     defaultDataExpression="${#walkDir(directoryToIngest, null)}"/>
+	<contextDataDef name="totalFiles" 				dataType="Integer"		defaultDataExpression="${filesToIngest.size()}"
+	<contextDataDef name="fileCounter"              dataType="Integer" defaultDataExpression="0"/>
+	<contextDataDef name="everyThingOK"				 dataType="Boolean" defaultDataExpression="true" />
+	<contextDataDef name="bodyReport"				 dataType="String" defaultDataExpression="" />
+
 	<!-- queue loop variables -->
 	<contextDataDef name="nextFiles"    		    dataType="File" 		multiple="true"/>
 	<contextDataDef name="executingSubflows" 	    dataType="Data Object" 	multiple="true"/>

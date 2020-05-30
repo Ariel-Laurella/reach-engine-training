@@ -31,8 +31,7 @@
     >
 	
 	<initialStepName>get source path</initialStepName>
-	
-	
+
 	<!-- TODO: Remove this step when s3 is supported by runCommand or convertImageStep supports multi-page PDFs -->
 	<groovyStep name="get source path"
 		resultDataDef="sourceFilePath"
