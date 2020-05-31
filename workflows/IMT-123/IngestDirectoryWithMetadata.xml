@@ -435,7 +435,7 @@ return jsonRows
 	<groovyStep	name="update metadata list with running ingest"
 				   resultDataDef="MetadataFull"
 				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
-				   nextStep="process file"
+				   nextStep="update category metadata to ingest"
 	>
 		<script>
 			<![CDATA[
@@ -462,6 +462,38 @@ return jsonRows
        ]]>
 		</script>
 	</groovyStep>
+
+	<!-- update metadata list: running ingest-->
+	<groovyStep	name="update category metadata to ingest"
+				   resultDataDef="categoryNames"
+				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
+				   nextStep="process file"
+	>
+		<script>
+			<![CDATA[
+		// update categories metadata to ingest
+
+		import groovy.json.JsonOutput
+		import groovy.json.JsonSlurper
+
+		def categories = new ArrayList()
+		def slurper = new JsonSlurper()
+		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
+
+		def catElements =  mapMetadata.get("category").replace("\"","").split(",")
+
+		for (def catElement in catElements){
+
+			categories.add(catElement)
+
+		}
+
+		return categories
+
+       ]]>
+		</script>
+	</groovyStep>
+
 
 
 	<!-- process file asynchronously -->

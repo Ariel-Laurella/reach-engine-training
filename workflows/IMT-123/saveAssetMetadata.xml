@@ -99,9 +99,14 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 				for(linkMap in linkMetadata){
 					allDataJson.links.push(new JsonSlurper().parseText(linkMap.toString()))
 				}
+
+				//Add categories thet comes from jsonMetadata
+
+
 				for(category in categories){
 					allDataJson.categories.push(category.toString())
 				}
+
 				
 				// return everything combined
 				return allDataJson
