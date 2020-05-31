@@ -294,7 +294,7 @@ return jsonRows
 		<transition condition="${executingSubflows.size() &gt; 10  OR (executingSubflows.size() != 0 AND fileIndex == totalFiles)}">
 			<targetStepName>wait some time</targetStepName>
 		</transition>
-		<transition condition="${ (totalFiles - fileIndex) &gt; 11 OR (11 - executingSubflows.size()) &gt; (totalFiles - fileIndex)}">
+		<transition condition="${ (totalFiles - fileIndex) &gt; 11 OR (11 - executingSubflows.size()) &lt; (totalFiles - fileIndex)}">
 			<targetStepName>set amount of files to ingest level 1</targetStepName>
 		</transition>
 		<transition condition="${true}">
@@ -306,14 +306,14 @@ return jsonRows
 					nextStep="set file name to ingest"
 	>
 		<set targetDataDef="filesToIngestNow" 	valueExpression="${11 - executingSubflows.size()}" />
-		<set targetDataDef="initialFileIndex"   valueExpression="${filesToIngestNow + fileIndex}"/>
+		<set targetDataDef="initialFileIndex"   valueExpression="${fileIndex}"/>
 	</setContextData>
 
 	<setContextData name="set amount of files to ingest level 2"
 					nextStep="set file name to ingest"
 	>
 		<set targetDataDef="filesToIngestNow" 	valueExpression="${totalFiles - fileIndex}" />
-		<set targetDataDef="initialFileIndex"   valueExpression="${filesToIngestNow + fileIndex}"/>
+		<set targetDataDef="initialFileIndex"   valueExpression="${fileIndex}"/>
 	</setContextData>
 
 
@@ -509,7 +509,7 @@ return jsonRows
 					targetDataDef="fileIndex"
 					valueExpression="${fileIndex + 1}"
 	>
-		<transition condition="${fileIndex &gt; filesToIngestNow + initialFileIndex}">
+		<transition condition="${fileIndex == filesToIngestNow + initialFileIndex}">
 			<targetStepName>query for running subflows</targetStepName>
 		</transition>
 		<transition condition="${true}">
