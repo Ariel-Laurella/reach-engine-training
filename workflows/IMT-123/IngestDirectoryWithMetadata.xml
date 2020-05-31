@@ -239,13 +239,13 @@ return jsonRows
 
 
 
-	<!-- ................................................... Queue Loop ................................................... -->
+	<!-- ................................................... Queue Loop 1 ................................................... -->
 	<queryStep name="query for running subflows"
 			   targetDataObjectClass="WorkflowExecution"
 			   resultDataDef="executingSubflows"
 			   executionLabelExpression="checking for workflows (with name = ${subflowName}) that match this directory that are also not in a finished state"
 			   devStep="false"
-			   nextStep="set file name to ingest"
+			   nextStep="get number of files to ingest"
 	>
 		<criteria>
 			<![CDATA[
@@ -271,16 +271,56 @@ return jsonRows
 	</queryStep>
 
 
-	<!-- get posible number of files to ingest. We work with the following variables:
-	  "totalFiles" : Total files in directory.
-	  "filesToIngestNow": number of files allowed to ingest. Between 4 and 11 depending on another instances running.
-	  "fileIndex": current index position to ingest according to list "filesToIngest".
-	  "fileIndexEnd" : index position to ingest according "filesToIngestNow" allowed.
-	  "executingSubflows.size()": current instances of ingest running.
+	<!-- get number of files to ingest. We work with the following variables:
+	  "totalFiles" 				(T) : Total files in directory.
+	  "filesToIngestNow" 		(F) : files allowed to ingest. Between 4 and 11 depending on another instances running.
+	  "fileIndex" 				(I) : current index position to ingest according to list "filesToIngest".
+      "initialFileIndex			(Ii): initial index position from each new calculous of (F).
+	  "executingSubflows.size()"(P) : current instances of ingest running.
+
+	  the following logic try to not overwhelm system with more than 11 files simultaneously processing:
+
+	  If P>10 then wait 10 seconds and ask again
+	  elseif (T-I>11 or 11-P<T-I)  then F = 11 - P
+	  else F = T - I
+
+
 	  -->
 
+	<noopStep name="get number of files to ingest">
+		<transition condition="${executingSubflows.size() == 0 AND fileIndex == totalFiles }">
+			<targetStepName>sendEmail</targetStepName>
+		</transition>
+		<transition condition="${executingSubflows.size() &gt; 10  OR (executingSubflows.size() != 0 AND fileIndex == totalFiles)}">
+			<targetStepName>wait some time</targetStepName>
+		</transition>
+		<transition condition="${ (totalFiles - fileIndex) &gt; 11 OR (11 - executingSubflows.size()) &gt; (totalFiles - fileIndex)}">
+			<targetStepName>set amount of files to ingest level 1</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>set amount of files to ingest level 2</targetStepName>
+		</transition>
+	</noopStep>
 
-	<!-- second loop from here to send "filesToIngestNow" in parallel ...........-->
+	<setContextData name="set amount of files to ingest level 1"
+					nextStep="set file name to ingest"
+	>
+		<set targetDataDef="filesToIngestNow" 	valueExpression="${11 - executingSubflows.size()}" />
+		<set targetDataDef="initialFileIndex"   valueExpression="${filesToIngestNow + fileIndex}"/>
+	</setContextData>
+
+	<setContextData name="set amount of files to ingest level 2"
+					nextStep="set file name to ingest"
+	>
+		<set targetDataDef="filesToIngestNow" 	valueExpression="${totalFiles - fileIndex}" />
+		<set targetDataDef="initialFileIndex"   valueExpression="${filesToIngestNow + fileIndex}"/>
+	</setContextData>
+
+
+
+
+<!-- ................................................... Queue Loop 2:  ............................................ -->
+<!-- second loop from here to send "filesToIngestNow" in parallel ...........-->
 
 
 	<!-- Search file in the sheet and return metadata that match -->
@@ -338,7 +378,7 @@ return jsonRows
 			<targetStepName>update metadata list with recordOID duplicated</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName>process file</targetStepName>
+			<targetStepName>update metadata list with running ingest</targetStepName>
 		</transition>
 
 		<criteria>
@@ -359,7 +399,7 @@ return jsonRows
 	<groovyStep	name="update metadata list with recordOID duplicated"
 				   resultDataDef="MetadataFull"
 				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
-				   nextStep="sendEmail2"
+				   nextStep="increment file index"
 	>
 		<script>
 			<![CDATA[
@@ -389,15 +429,48 @@ return jsonRows
 	</groovyStep>
 
 
+	<!-- update metadata list: running ingest-->
+	<groovyStep	name="update metadata list with running ingest"
+				   resultDataDef="MetadataFull"
+				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
+				   nextStep="process file"
+	>
+		<script>
+			<![CDATA[
+		// update metadata list: fail ingest because another content has the same recordOID
 
+		import groovy.json.JsonOutput
+		import groovy.json.JsonSlurper
+
+		def slurper = new JsonSlurper()
+		Map[] jsonList = slurper.parseText(MetadataFull.toString())
+		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
+
+		for (int i = 0;i < jsonList.size(); i++)
+		{
+			if(jsonList[i].get("fileName") == mapMetadata.get("fileName") && jsonList[i].get("state") == "pending" )
+			{
+				jsonList[i].replace("state", "running")
+				break
+			}
+		}
+
+		return jsonList
+
+       ]]>
+		</script>
+	</groovyStep>
+
+
+	<!-- process file asynchronously -->
 	<executeSubflowStep name="process file"
 						executionLabelExpression="Ingesting file ${filesToIngest[fileIndex]}"
 						targetWorkflowId="${ingestSubflow}"
 						subjectChangePath="${filesToIngest[fileIndex]}"
 						subflowTargetDataDef="fileToIngest"
 						resultDataDef="jsonMetadata"
-						waitForCompletionExpression="true"
-						nextStep="sendEmail"
+						waitForCompletionExpression="false"
+						nextStep="increment file index"
 	>
 		<!-- ingest -->
 		<subflowContextDataMapping parentDataDef="sourceAsMezz"             subflowDataDef="sourceAsMezz"/>
@@ -432,12 +505,24 @@ return jsonRows
 		<subflowContextDataMapping parentDataDef="jsonMetadata"   			subflowDataDef="jsonMetadata"/>
 	</executeSubflowStep>
 
+	<setContextData name="increment file index"
+					targetDataDef="fileIndex"
+					valueExpression="${fileIndex + 1}"
+	>
+		<transition condition="${fileIndex &gt; filesToIngestNow + initialFileIndex}">
+			<targetStepName>query for running subflows</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>set file name to ingest</targetStepName>
+		</transition>
+	</setContextData>
 
-	<delayStep 	name="wait some time loop1"
+
+	<delayStep 	name="wait some time"
 			   	delaySecondsExpression="10"
-				nextStep="end"
+				nextStep="query for running subflows"
 	/>
-
+<!-- ................................................... Finish Loop ............................................... -->
 
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
@@ -546,8 +631,9 @@ return jsonRows
 	<contextDataDef name="filesToIngest" 		    dataType="File"		    multiple="true"     defaultDataExpression="${#walkDir(directoryToIngest, null)}"/>
 	<contextDataDef name="totalFiles" 				dataType="Integer"		defaultDataExpression="${filesToIngest.size()}" />
 	<contextDataDef name="filesToIngestNow"         dataType="Integer"		defaultDataExpression="0"/>
-	<contextDataDef name="fileIndex"		        dataType="Integer" defaultDataExpression="1"/>
-	<contextDataDef name="fileIndexEnd"		        dataType="Integer" defaultDataExpression="0"/>
+	<contextDataDef name="fileIndex"		        dataType="Integer" defaultDataExpression="0"/>
+	<contextDataDef name="initialFileIndex"	        dataType="Integer" defaultDataExpression="0"/>
+
 	<contextDataDef name="everyThingOK"				 dataType="Boolean" defaultDataExpression="true" />
 	<contextDataDef name="bodyReport"				 dataType="String"  defaultDataExpression="" />
 

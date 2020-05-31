@@ -23,6 +23,20 @@ Esto est{a preparado para trabajar con S3.
 Colocar el procedimiento para crear los campos de metadata necesarios, dea cuerdo al mapping json
 
 keword are added, but the have to exist previouly on data base. So, remember to add keywords before ingest in order to be available.
+
+
+<!-- get posible number of files to ingest. We work with the following variables:
+	  "totalFiles" 				(T) : Total files in directory.
+	  "filesToIngestNow" 		(F) : files allowed to ingest. Between 4 and 11 depending on another instances running.
+	  "fileIndex" 				(I) : current index position to ingest according to list "filesToIngest".
+      "initialFileIndex			(Ii): initial index position from each new calculous of (F).
+	  "executingSubflows.size()"(P) : current instances of ingest running.
+
+	  the following logic try to not overwhelm system with more than 11 files simultaneously processing:
+	  If P>=11 then wait 10 10 seconds
+	  elseif (T-I>11 or 11-P<T-I)  then F = 11 - P
+	  else F = T - I
+
  
 
 
