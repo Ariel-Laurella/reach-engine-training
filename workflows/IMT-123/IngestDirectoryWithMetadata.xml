@@ -171,13 +171,19 @@ for (def row in csvRows){
     {
         def rowValue
         try {
+
             rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
+
         }
         catch (Exception e)
         {
             rowValue = ""
         }
 
+ 		if (rowValue != "" &&  reachFieldNames[j] == "keywords")
+        {
+        	rowValue = rowValue.replace(",","|").replace("\"","")
+        }
         mapSingleLine.put(reachFieldNames[j], rowValue)
     }
     mapSingleLine.put("proxyTriage","false")
@@ -283,8 +289,6 @@ return jsonRows
 	  If P>10 then wait 10 seconds and ask again
 	  elseif (T-I>11 or 11-P<T-I)  then F = 11 - P
 	  else F = T - I
-
-
 	  -->
 
 	<noopStep name="get number of files to ingest">
@@ -315,8 +319,6 @@ return jsonRows
 		<set targetDataDef="filesToIngestNow" 	valueExpression="${totalFiles - fileIndex}" />
 		<set targetDataDef="initialFileIndex"   valueExpression="${fileIndex}"/>
 	</setContextData>
-
-
 
 
 <!-- ................................................... Queue Loop 2:  ............................................ -->
