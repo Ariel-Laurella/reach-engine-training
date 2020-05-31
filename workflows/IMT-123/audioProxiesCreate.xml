@@ -19,7 +19,7 @@
 	xmlns="http://levelsbeyond.com/schema/workflow"
 	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
 	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
-    id="videoProxiesCreate"
+    id="audioProxiesCreate"
     name="Create Audio Proxy"
     executionLabelExpression="Create Audio Proxy | asset: ${subject.name}"
     description=""

@@ -78,21 +78,21 @@ It devives from _anyDirectoryIngest.xml workflow.
 				  targetDirectoryExpression="${localDirectoryPath}/${uuid}"
 				  targetFilenameExpression="${uuid}.csv"
 				  createTargetDirectoryFlag="true"
-				  nextStep="copy json from S3 to Local" />
+				  nextStep="copy json from S3 to temp directory" />
 
 
-	<copyFileStep name="copy json from S3 to Local"
+	<copyFileStep name="copy json from S3 to temp directory"
 				  executionLabelExpression="copy json from S3 to Local Reachengine"
 				  sourceFileExpression="${jsonMappingFile}"
 				  targetDirectoryExpression="${localDirectoryPath}/${uuid}"
 				  targetFilenameExpression="${uuid}.json"
-				  nextStep="get metadata from csv" />
+				  nextStep="get metadata list from csv" />
 
 
-	<groovyStep	name="get metadata from csv"
-				   resultDataDef="jsonMetadataFull"
-				   executionLabelExpression="getting metadata from csv to json"
-				   nextStep="delete local csv and json"
+	<groovyStep	name="get metadata list from csv"
+				   resultDataDef="MetadataFull"
+				   executionLabelExpression="getting metadata from csv"
+				   nextStep="delete temp csv and json files"
 	>
 		<script>
 			<![CDATA[
@@ -106,14 +106,12 @@ def jsonMappingPath = localDirectoryPath + "/"+ uuid + "/"+ uuid + ".json"
 def csvMetadataPath = localDirectoryPath +"/" + uuid + "/"+ uuid + ".csv"
 
 def jsonMappingSlurper = new JsonSlurper()
-def jsonListSlurper = new JsonSlurper()
-def digestedCsvRows = new ArrayList()
+def jsonRows = new ArrayList()
 def reachFieldNames = new ArrayList()
 def csvColumnPosition = new ArrayList()
 def csvRows = new ArrayList()
 def jsonMappingelemnts = [:]
-def csvHeaderFilename = "fileName"
-def sCurrentLine
+def realRecordOIDname = ""
 
 File jsonFileToProcess = new File(jsonMappingPath)
 File csvFileToProcess = new File(csvMetadataPath)
@@ -129,22 +127,27 @@ def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
 jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
 
 for (int i = 0; i < jsonMappingelemnts.size(); i++) {
+   if (jsonMappingelemnts.keySet()[i] == "uuid")
+   {
+       realRecordOIDname = jsonMappingelemnts.values()[i]
+   }
+
     for (int j = 0; j < csvHeader.size(); j++)
     {
-         if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
-         {
+        if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
+        {
+
             reachFieldNames.add(jsonMappingelemnts.values()[i])
             csvColumnPosition.add(j)
-         }
-        if (csvHeader[j] == csvHeaderFilename && i == 0)
+        }
+        if (csvHeader[j] == "fileName" && i == 0)
         {
-            reachFieldNames.add(csvHeaderFilename)
+            reachFieldNames.add("fileName")
             csvColumnPosition.add(j)
         }
     }
 
 }
-
 //remove HeaderRow from array csvRows
 csvRows.remove(0)
 
@@ -154,7 +157,7 @@ def rowCounter = 0
 
 for (def row in csvRows){
     rowCounter++
-    Map singleLineResult = [:]  // this will be the return for this loop execution
+    Map mapSingleLine = [:]
 
     if (row == null || !row.contains(",") ){
         continue
@@ -164,37 +167,70 @@ for (def row in csvRows){
     def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
 
 
-
     for (int j = 0; j < csvColumnPosition.size(); j++)
     {
         def rowValue
         try {
-              rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
+            rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
         }
         catch (Exception e)
         {
-              rowValue = ""
+            rowValue = ""
         }
 
-        singleLineResult.put(reachFieldNames[j], rowValue)
+        mapSingleLine.put(reachFieldNames[j], rowValue)
     }
-    singleLineResult.put("proxyTriage","false")
-    singleLineResult.put("success","")
-    singleLineResult.put("message","")
+    mapSingleLine.put("proxyTriage","false")
+    mapSingleLine.put("state","pending")
+    mapSingleLine.put("message","")
 
 
-    digestedCsvRows.add(singleLineResult)
+    jsonRows.add(mapSingleLine)
 
 }
 
-//return JsonOutput.toJson(digestedCsvRows)
-return digestedCsvRows
+//debug bad rows: those rows with same recordOID or empty recordOID
+// or same filename in the same sheet before processing.
+for(int i=0; i<jsonRows.size() ; i++)
+{
+    Map mapSingleLine = jsonRows[i]
+
+    if (mapSingleLine.get("state") == "failed")
+    {
+        continue
+    }
+
+    if (mapSingleLine.get(realRecordOIDname) == "")
+    {
+        mapSingleLine.replace("state","failed")
+        mapSingleLine.replace("message","Row "+ (i+2).toString() +" in the sheet: "+ realRecordOIDname +" is empty for file " + mapSingleLine.get("fileName"))
+        jsonRows.set(i, mapSingleLine)
+    }
+    else
+    {
+        for(int j=i; j<jsonRows.size() ; j++)
+        {
+            Map mapLineIterator = jsonRows[j]
+            if (i != j && mapSingleLine.get(realRecordOIDname) == mapLineIterator.get(realRecordOIDname))
+            {
+                mapLineIterator.replace("state", "failed")
+                mapLineIterator.replace("message", "Row "+ (j+2).toString() +" in the sheet: File " + mapSingleLine.get("fileName") + " in the present sheet has the same "+realRecordOIDname+ ": " + mapSingleLine.get(realRecordOIDname))
+                jsonRows.set(j,mapLineIterator)
+            }
+        }
+    }
+
+}
+
+//return JsonOutput.toJson(jsonRows)
+return jsonRows
+
 
        ]]>
 		</script>
 	</groovyStep>
 
-	<deleteFileStep name="delete local csv and json"
+	<deleteFileStep name="delete temp csv and json files"
 					executionLabelExpression="deleting temp path: ${localDirectoryPath}/${uuid}"
 					sourceFilesExpression="${localDirectoryPath}/${uuid}"
 					continueOnException="true"
@@ -209,7 +245,7 @@ return digestedCsvRows
 			   resultDataDef="executingSubflows"
 			   executionLabelExpression="checking for workflows (with name = ${subflowName}) that match this directory that are also not in a finished state"
 			   devStep="false"
-			   nextStep="process files"
+			   nextStep="set file name to ingest"
 	>
 		<criteria>
 			<![CDATA[
@@ -235,17 +271,129 @@ return digestedCsvRows
 	</queryStep>
 
 
-	<!-- get posible number of files to ingest -->
+	<!-- get posible number of files to ingest. We work with the following variables:
+	  "totalFiles" : Total files in directory.
+	  "filesToIngestNow": number of files allowed to ingest. Between 4 and 11 depending on another instances running.
+	  "fileIndex": current index position to ingest according to list "filesToIngest".
+	  "fileIndexEnd" : index position to ingest according "filesToIngestNow" allowed.
+	  "executingSubflows.size()": current instances of ingest running.
+	  -->
+
+
+	<!-- second loop from here to send "filesToIngestNow" in parallel ...........-->
+
+
+	<!-- Search file in the sheet and return metadata that match -->
+	<setContextData name="set file name to ingest"
+					targetDataDef="baseFilename"
+					valueExpression="${#filename(filesToIngest[fileIndex])}"
+					nextStep="search metadata for file"/>
+
+
+	<groovyStep	name="search metadata for file"
+				   resultDataDef="jsonMetadata"
+				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
+	>
+		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
+			<targetStepName>query for recordOID</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<script>
+			<![CDATA[
+
+		// get metadata related to the file to ingest
+
+		import groovy.json.JsonOutput
+		import groovy.json.JsonSlurper
+
+		mapMetadata = [:]
+		def slurper = new JsonSlurper()
+		Map[] jsonList = slurper.parseText(MetadataFull.toString())
+
+		for (def jsonRow in jsonList)
+		{
+			if(jsonRow.get("fileName") == baseFilename && jsonRow.get("state") == "pending" )
+			{
+				mapMetadata = jsonRow
+				break
+			}
+		}
+
+		return mapMetadata
+       ]]>
+		</script>
+	</groovyStep>
+
+
+	<!-- Verify if recordOID already exists in RE -->
+	<queryStep name="query for recordOID"
+			   executionLabelExpression="Querying"
+			   targetDataObjectClass="AssetMaster"
+			   resultDataDef="resultObject"
+
+	>
+		<transition condition="${resultObject != null}">
+			<targetStepName>update metadata list with recordOID duplicated</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>process file</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="metadata.recordOID" op="eq">
+                            <test value="${ jsonMetadata.get('recordOID').asText()}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
+
+
+	<!-- update metadata list: fail ingest because recordOID is duplicated-->
+	<groovyStep	name="update metadata list with recordOID duplicated"
+				   resultDataDef="MetadataFull"
+				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
+				   nextStep="sendEmail2"
+	>
+		<script>
+			<![CDATA[
+		// update metadata list: fail ingest because another content has the same recordOID
+
+		import groovy.json.JsonOutput
+		import groovy.json.JsonSlurper
+
+		def slurper = new JsonSlurper()
+		Map[] jsonList = slurper.parseText(MetadataFull.toString())
+		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
+
+		for (int i = 0;i < jsonList.size(); i++)
+		{
+			if(jsonList[i].get("fileName") == mapMetadata.get("fileName") && jsonList[i].get("state") == "pending" )
+			{
+				jsonList[i].replace("state", "failed")
+				jsonList[i].replace("message", "Row "+ (i+2).toString() +" in the sheet: File " + mapMetadata.get("fileName") + " not ingested. The recordOID is duplicated: "+ mapMetadata.get("recordOID"))
+				break
+			}
+		}
+
+		return jsonList
+
+       ]]>
+		</script>
+	</groovyStep>
 
 
 
-
-
-
-	<executeSubflowStep name="process files"
-						executionLabelExpression="Ingesting ${filesToIngest.size()} Files"
+	<executeSubflowStep name="process file"
+						executionLabelExpression="Ingesting file ${filesToIngest[fileIndex]}"
 						targetWorkflowId="${ingestSubflow}"
-						subjectChangePath="${filesToIngest[1]}"
+						subjectChangePath="${filesToIngest[fileIndex]}"
 						subflowTargetDataDef="fileToIngest"
 						resultDataDef="jsonMetadata"
 						waitForCompletionExpression="true"
@@ -291,40 +439,28 @@ return digestedCsvRows
 	/>
 
 
-	<queryStep name="query for recordOID"
-			   executionLabelExpression="Querying"
-			   targetDataObjectClass="AssetMaster"
-			   resultDataDef="resultObject"
-
-	>
-		<transition condition="${resultObject != null}">
-			<targetStepName>sendEmail</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>end</targetStepName>
-		</transition>
-
-		<criteria>
-			<![CDATA[
-                <criteria>
-                    <and>
-                        <condition property="metadata.recordOID" op="eq">
-                            <test value="${recordNumber}"/>
-                        </condition>
-                    </and>
-                </criteria>
-            ]]>
-		</criteria>
-	</queryStep>
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
 				  subjectExpression="I'm just writing to say.."
 				  nextStep="end"
 	>
 		<body>
-			<![CDATA[    ${resultObject.metadata.longDescription}  ]]>
+			<![CDATA[    ${jsonMetadata.toString()}  ]]>
+			<!-- <![CDATA[    ${resultObject.metadata.longDescription}  ]]> -->
 		</body>
 	</emailStep>
+
+	<emailStep 	name="sendEmail2"  emailAddressesExpression="${userEmailAddress}"
+				  subjectExpression="Existe el recordOID"
+				  nextStep="end"
+	>
+		<body>
+			<![CDATA[    ${jsonMetadata.get('longDescription').asText()}  ]]>
+
+
+		</body>
+	</emailStep>
+
 
 
 	<!-- ................................................... End Steps .................................................... -->
@@ -356,12 +492,14 @@ return digestedCsvRows
 	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="false" displayIndex="3" />
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
-	<contextDataDef name="jsonMetadataFull" 		dataType="JSON" />
+	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
+	<contextDataDef name="baseFilename" 			dataType="String" />
+
 
 	<contextDataDef name="resultObject" dataType="Data Object" />
 
@@ -406,10 +544,12 @@ return digestedCsvRows
 	<!-- ....... Processing Variables ........ -->
 	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	multiple="true"/>
 	<contextDataDef name="filesToIngest" 		    dataType="File"		    multiple="true"     defaultDataExpression="${#walkDir(directoryToIngest, null)}"/>
-	<contextDataDef name="totalFiles" 				dataType="Integer"		defaultDataExpression="${filesToIngest.size()}"
-	<contextDataDef name="fileCounter"              dataType="Integer" defaultDataExpression="0"/>
+	<contextDataDef name="totalFiles" 				dataType="Integer"		defaultDataExpression="${filesToIngest.size()}" />
+	<contextDataDef name="filesToIngestNow"         dataType="Integer"		defaultDataExpression="0"/>
+	<contextDataDef name="fileIndex"		        dataType="Integer" defaultDataExpression="1"/>
+	<contextDataDef name="fileIndexEnd"		        dataType="Integer" defaultDataExpression="0"/>
 	<contextDataDef name="everyThingOK"				 dataType="Boolean" defaultDataExpression="true" />
-	<contextDataDef name="bodyReport"				 dataType="String" defaultDataExpression="" />
+	<contextDataDef name="bodyReport"				 dataType="String"  defaultDataExpression="" />
 
 	<!-- queue loop variables -->
 	<contextDataDef name="nextFiles"    		    dataType="File" 		multiple="true"/>

@@ -22,6 +22,13 @@ Esto est{a preparado para trabajar con S3.
 
 Colocar el procedimiento para crear los campos de metadata necesarios, dea cuerdo al mapping json
 
+keword are added, but the have to exist previouly on data base. So, remember to add keywords before ingest in order to be available.
+ 
+
+
+//debug bad rows: those rows with same recordOID or empty recordOID
+// or same filename in the same sheet before processing.
+
 
 ## Workflow: xxxx
 

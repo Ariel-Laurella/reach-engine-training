@@ -22,7 +22,6 @@ It devives from _anyAssetIngest.xml workflow.
 	<initialStepName>check if workflow is running</initialStepName>
 
 
-
 	<queryStep name="check if workflow is running"
 		targetDataObjectClass="WorkflowExecution"
 		resultDataDef="currentExecutions"
@@ -134,8 +133,6 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
 		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
 	</executeSubflowStep>
-
-
 
 
 	<saveDataObjectStep name="set proxyTriage flag"
