@@ -372,7 +372,7 @@ return jsonRows
 
 	<!-- Verify if recordOID already exists in RE -->
 	<queryStep name="query for recordOID"
-			   executionLabelExpression="Querying"
+			   executionLabelExpression="Verifying if recordOID already exist"
 			   targetDataObjectClass="AssetMaster"
 			   resultDataDef="resultObject"
 
