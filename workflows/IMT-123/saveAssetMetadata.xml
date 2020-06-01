@@ -413,7 +413,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 				Valid types = "access" or "panel"
 		</description>
 	</contextDataDef>
-	
+
 	<!-- ....... Processing Variables ........ -->
 	<contextDataDef name="allDataJson"          dataType="JSON"/>
 	<contextDataDef name="combinedCategories"   dataType="Data Object"      multiple="true"/>

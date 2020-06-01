@@ -185,13 +185,6 @@ for (def row in csvRows){
         	rowValue = rowValue.replace(",","|").replace("\"","")
         }
 
-        if ( rowValue.trim() == ""  &&  reachFieldNames[j] == "category")
-		{
-		   rowValue = categoryNoDepartment.toString()
-		}
-
-
-
         mapSingleLine.put(reachFieldNames[j], rowValue)
     }
     mapSingleLine.put("proxyTriage","false")
@@ -654,7 +647,6 @@ return ArrayCollections
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
-	<contextDataDef name="categoryNoDepartment" dataType="String"			defaultDataExpression="no department" />
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />

@@ -1,28 +1,64 @@
-# IMT Workflow to ingest 
-Original Author: Levels Beyond Inc. & IMT Global Inc.
+# Ingest Directory With Metadata Workflow
+Original Author: IMT Global Inc.
 Last Updated By: Ariel Laurella of IMT, 2020-05-30
 
 ####Objective
 
+Este workflows está destinado a ingestar en Reachengine el contenido completo de una carpeta de archivos admitidos por el sistema, como también la catalogación automatica de la metadata por medio de una planilla en formato CSV. Todo en un solo pasos de ejecución. 
 
-##Use case 
 
-Explicar como es la operativa desde el UI
+##Appropriate use case  
 
-This workflow is exceuted by 
+Los elementos necesarios que sirven como entrada para ejecutar este workflow son:
+Un directorio con los archivos a ingestar.
+Una planilla excel en formato csv que contiene la metadata asociada a los archivos del directorio a ingestar.
+Un archivos json que mapea los campos de la planilla excel con los campos respectivos en reachengine.
+El detalle de los campos del excel y del json mapping se agregan al final en el apendice.
+  
+
+La forma de operar este workflows es la siguiente:
+Ejecute en la UI el workflow llamado "Ingest Directory With Metadata". Se abre un formulario donde debe llenar los siguientes campos obligatorios:  
+Directory to ingest.
+Metadata file. 
+Mapping file.
+
+
+Como resultado del procesos debe esperarse que se ingeste el contenido del directorio seleccionado, siguiendo el proceso estandar ordenado por Reachengine, y se ingrese la metadadta respectiva encontradad en la planilla excel. 
+
+
+La metada completada en Reachengine corresponden a los siguientes campos: "recordOID","weekID","eventLocation","longDescription","shortDescription","keywords","preValidated","collection","category"
+
+Que le corresponden a los siguientes campos en el excel respectivamente:
+"uuid","wid","location","description","short","keywords","validated","project","department"
+
+Además la planilla tiene una columna adicional llamada "fileName". Las condiciones que deben darse para que un archivo sea ingestados que sea encontrado en la planilla por la columna "fileName", a demás que no exista ningun asset en Reachengine con el valor del campo "recordOID".
+
+El workflow debe asignar la "category" / "department" indicado. Si falla entonces debe agregar al asset en una categoria denominada "no department".
+El workflow debe agregar la "collection"/"project" al sset y crearla si no existe. 
+El workflow will set a metadata field called "proxyTriage" to the value "true" if any of the proxies or thumbnails are failed to be created.
+
+
+Al finalizar el proceso el usuario será notificado con un mail por el resultado de todas las ingestas realizadas por success o por fail de las siguientes fallas:
+Ya existe un asset con el recordOID proporcionado.
+Falló al agregar la collection.
+Falló la asignación de categoria.
+
+
+
+
+
+
 
 should send 11 files at most and 4 file at least
 
-input:  UI and input fileds , and input files included CSV as metadata file and JSON file as metadata mapping.
-output:  Expected success and fail
 
 Expresar cual es la ruta local a setear en RE para CSV y JSON
-
 Esto est{a preparado para trabajar con S3. 
-
 Colocar el procedimiento para crear los campos de metadata necesarios, dea cuerdo al mapping json
 
 keword are added, but the have to exist previouly on data base. So, remember to add keywords before ingest in order to be available.
+
+add category "no department"
 
 
 <!-- get posible number of files to ingest. We work with the following variables:
