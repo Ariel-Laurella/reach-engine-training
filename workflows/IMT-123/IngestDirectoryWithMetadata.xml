@@ -468,7 +468,7 @@ return jsonRows
 	<groovyStep	name="update category metadata to ingest"
 				   resultDataDef="categoryNames"
 				   executionLabelExpression="updating metadata about category"
-				   nextStep="update collection to allocate asset"
+				   nextStep="process file"
 	>
 		<script>
 			<![CDATA[
@@ -493,7 +493,7 @@ return jsonRows
 		</script>
 	</groovyStep>
 
-
+<!-- TODO: "update collection to allocate asset" can be removed -->
 	<!-- update collection to allocate asset-->
 	<groovyStep	name="update collection to allocate asset"
 				   resultDataDef="collections"
@@ -530,14 +530,15 @@ return ArrayCollections
 	</groovyStep>
 
 
-	<!-- process file asynchronously -->
+	<!-- process file in parallel -->
 	<executeSubflowStep name="process file"
 						executionLabelExpression="Ingesting file ${filesToIngest[fileIndex]}"
 						targetWorkflowId="${ingestSubflow}"
 						subjectChangePath="${filesToIngest[fileIndex]}"
 						subflowTargetDataDef="fileToIngest"
-						resultDataDef="jsonMetadata"
+						resultDataDef="jsonResultList"
 						waitForCompletionExpression="false"
+						continueOnException="true"
 						nextStep="increment file index"
 	>
 		<!-- ingest -->
@@ -554,6 +555,11 @@ return ArrayCollections
 		<subflowContextDataMapping parentDataDef="categoryNames"            subflowDataDef="categoryNames"/>
 		<subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
 		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
+		<subflowContextDataMapping parentDataDef="categoryNoDepartment"     subflowDataDef="categoryNoDepartment"/>
+		<subflowContextDataMapping parentDataDef="collectionDefault"     	subflowDataDef="collectionDefault"/>
+
+
+
 		<!-- proxies -->
 		<subflowContextDataMapping parentDataDef="failOnProxiesError"       subflowDataDef="failOnProxiesError"/>
 		<subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
@@ -570,7 +576,6 @@ return ArrayCollections
 		<subflowContextDataMapping parentDataDef="imageThumbArguments"      subflowDataDef="imageThumbArguments"/>
 		<subflowContextDataMapping parentDataDef="documentProxyArguments"   subflowDataDef="documentProxyArguments"/>
 		<subflowContextDataMapping parentDataDef="documentThumbArguments"   subflowDataDef="documentThumbArguments"/>
-		<subflowContextDataMapping parentDataDef="jsonMetadata"   			subflowDataDef="jsonMetadata"/>
 	</executeSubflowStep>
 
 	<setContextData name="increment file index"
@@ -646,10 +651,15 @@ return ArrayCollections
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
+	<contextDataDef name="jsonResultList" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
+	<contextDataDef name="categoryNoDepartment" 	dataType="String"	multiple="true" defaultDataExpression="no department" />
+	<contextDataDef name="collectionDefault" 		dataType="String"	defaultDataExpression="orphaned" />
+
+
 	<contextDataDef name="baseFilename" 			dataType="String" />
 
 

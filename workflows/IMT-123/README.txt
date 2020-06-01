@@ -1,6 +1,6 @@
 # Ingest Directory With Metadata Workflow
 Original Author: IMT Global Inc.
-Last Updated By: Ariel Laurella of IMT, 2020-05-30
+Last Updated By: Ariel Laurella of IMT, 2020-06-02
 
 ####Objective
 
@@ -34,115 +34,29 @@ Que le corresponden a los siguientes campos en el excel respectivamente:
 Además la planilla tiene una columna adicional llamada "fileName". Las condiciones que deben darse para que un archivo sea ingestados que sea encontrado en la planilla por la columna "fileName", a demás que no exista ningun asset en Reachengine con el valor del campo "recordOID".
 
 El workflow debe asignar la "category" / "department" indicado. Si falla entonces debe agregar al asset en una categoria denominada "no department".
-El workflow debe agregar la "collection"/"project" al sset y crearla si no existe. 
+El workflow debe asignar la "collection"/"project" al asset y crearla si no existe. En caso de falla debe agregar a la default collection called "orphaned".  
 El workflow will set a metadata field called "proxyTriage" to the value "true" if any of the proxies or thumbnails are failed to be created.
 
 
-Al finalizar el proceso el usuario será notificado con un mail por el resultado de todas las ingestas realizadas por success o por fail de las siguientes fallas:
+Al finalizar el proceso se espera que se hayan ingestado los archivos del directorio indicado y que tengan su correspondiente catalogación, de acuerdo el usuario será notificado con un mail por el resultado de todas las ingestas realizadas por success o por fail de las siguientes fallas:
 Ya existe un asset con el recordOID proporcionado.
 Falló al agregar la collection.
 Falló la asignación de categoria.
 
 
+Limitaciones:
+Este workflow ingesta todos los archivos que encuantre en el directorio admitidos por el sistema, pero no más de 11 en forma simultánea.
+Para poder ingestar un archivo, este debe poseer un recordOID en la planilla excel csv y además que no exista otro asset con el mismo recorOID en el sistema.
 
 
 
 
+##Deployment instructions 
 
-should send 11 files at most and 4 file at least
+Antes de importar los workflows a deben realizarse las siguientes configuraciones en Reachengine
 
-
-Expresar cual es la ruta local a setear en RE para CSV y JSON
-Esto est{a preparado para trabajar con S3. 
-Colocar el procedimiento para crear los campos de metadata necesarios, dea cuerdo al mapping json
-
-keword are added, but the have to exist previouly on data base. So, remember to add keywords before ingest in order to be available.
-
-add category "no department"
-
-
-<!-- get posible number of files to ingest. We work with the following variables:
-	  "totalFiles" 				(T) : Total files in directory.
-	  "filesToIngestNow" 		(F) : files allowed to ingest. Between 4 and 11 depending on another instances running.
-	  "fileIndex" 				(I) : current index position to ingest according to list "filesToIngest".
-      "initialFileIndex			(Ii): initial index position from each new calculous of (F).
-	  "executingSubflows.size()"(P) : current instances of ingest running.
-
-	  the following logic try to not overwhelm system with more than 11 files simultaneously processing:
-	  If P>=11 then wait 10 10 seconds
-	  elseif (T-I>11 or 11-P<T-I)  then F = 11 - P
-	  else F = T - I
-
- 
-
-
-//debug bad rows: those rows with same recordOID or empty recordOID
-// or same filename in the same sheet before processing.
-
-
-## Workflow: xxxx
-
-This is the main workflow that....
-
-
-
-## Workflow: xxx (subflow)
-
-This workflow is intended to ...
-
-## Workflow: yyy (subflow)
-This workflow is inteded to ...
-
-
-
-
-## Import Order
-
-ingestAssetBase
-documentProxiesCreate
-imageProxiesCreate
-audioProxiesCreate
-videoProxiesCreate
-proxiesAssetCreate
-2.saveAssetMetadata
-3.ingestAssetBase
-4.IngestAssetWithMetadata
-5.IngestDirectoryWithMetadata
-
-
-I decided to customize all dependences and use standard. 
-I reused some code from standard workflows provided by Lebels Beyond Inc.
-
-##dependencias:
-
-The following workflows are dependencies of ingestAssetWithMetadata. They are included in the package, but not needed to import if they still exists
-in the target environment.
-
-
-
-
-## Properties
-1. hallmarkLabs.backlot.apiKey
-2. hallmarkLabs.backlot.apiSecret
-3. hallmarkLabs.cms.apiKey
-4. hallmarkLabs.cms.secret
-5. reachEngine.environment   --> "DEV" or "PROD"
-6. hallmarkLabs.backlot.aspera.user
-7. hallmarkLabs.backlot.aspera.password
-
-## Notes For Go-Live
-
-
-
-
-Specification for the new metadata fields:
-
-
-
-
-
-Once you define a metadata field, It is not posible to modifiy Id, name and type. If that occurs, you only need to chenge values in the json mapping file. 
-Create the following metadata fiels. Be sure to put excactly Display Name and type, so you will see the name of the fields just like in the json mapping file of the specification. 
+1. Determinar cual es la ruta local en Reaanchengine donde copiar temporalmente el excel CSV y el JSON mapping files para procesarlos.  El sistema se encargará de borrarlo una vez que haya sido procesado. Esta ruta local debe configurarse en la cariable "localDirectoryPath" ubicada en el workflow principal "IngestDirectoryWithMetadata".
+2. Create the following metadata fiels from UI Admin-->Metadata-->Fields, according to the mapping provided in the mapping json. Be sure to put excactly Display Name and type, so you will see the name of the fields just like in the json mapping file of the specification. 
 
 Display Name:	recordOID
 Type: 			Text(Samll)
@@ -171,20 +85,64 @@ Display Name: 	Proxy Triage
 Type: 			Checkbox
 
 
+IMPORTANT:Once you define a metadata field, It is not posible to modifiy Id, name and type. So, be careful at time to asign name and type of data of a field.
+ 
+
+3. Verificar que se encuantren ingresadas todas las categories necesarias, incluida la categoría "no department". 
+
+4. Agregar las keywords que vayan a ingresarse.
+
+5. Importar los workflows proporcionados en el siguiente orden:
+
+a. ingestAssetBase
+b. documentProxiesCreate
+c. imageProxiesCreate
+d. audioProxiesCreate
+e. videoProxiesCreate
+f. proxiesAssetCreate
+g. saveAssetMetadata
+h. ingestAssetBase
+i. IngestAssetWithMetadata
+j. IngestDirectoryWithMetadata
+
+
+
+## Workflow description
+
+## Workflow: IngestDirectoryWithMetadata
+
+This is the main workflow submited by the UI. Here the user have to input directory, CSV metadata file (.csv) and Metadata mapping file (.json). Once all of this data are entered, it starts the ingest by the following steps:
+
+
+##### HERE ALL STEPS #####
+
+
+
+## Workflows (subflow): IngestAssetWithMetadata
+This is the workflow that manage each file sended from IngestDirectoryWithMetadata. It manages file ingest, proxy and thumbnail creation and the metadata saving. Está encargado de enviar la ejecición de cada una de estas tareas a los workflows de abajo.
+
+
+## Workflows (subflow): saveAssetMetadata and ingestAssetBase
+This workflow is inteded to save metadata into the asset ingested. They save all filds required present in the metadata file. 
+
+
+
+## Workflows (subflow): proxiesAssetCreate
+This workflow manage the creation of proxies and thumbnails for each file ingested. It invokes the specific subflow according to the asset type. 
+
+
+## Workflows (subflows):  documentProxiesCreate, imageProxiesCreate, audioProxiesCreate, videoProxiesCreate.
+All of these subflows are intended to create proxies and thumbnails of each file ingested. they are invoked from tha subflow proxiesAssetCreate
+
+ 
+
+
+##Notes For Go-Live
 
 
 
 
-Create a new default collection: orphaned
-
-Add a new category.
-Display Name: no department
-Description: This is the defaul category for those content with has no department
-
-
-
-
-
-
+##Final note
+This is fair use of original workflows, property of Levels Beyond Inc. or IMT inc. 
 
 

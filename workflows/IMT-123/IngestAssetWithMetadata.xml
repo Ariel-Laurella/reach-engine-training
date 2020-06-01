@@ -98,6 +98,8 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="categoryNames"            subflowDataDef="categoryNames"/>
 		<subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
 		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
+		<subflowContextDataMapping parentDataDef="categoryNoDepartment"     subflowDataDef="categoryNoDepartment"/>
+		<subflowContextDataMapping parentDataDef="collectionDefault"     	subflowDataDef="collectionDefault"/>
 
 	</executeSubflowStep>
 
@@ -182,16 +184,13 @@ It devives from _anyAssetIngest.xml workflow.
 	<!-- metadata options -->
 
 
+	<contextDataDef name="jsonMetadata"             dataType="JSON"/>
 	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>
 	<contextDataDef name="categories"               dataType="Data Object"      multiple="true"/>
 	<contextDataDef name="categoryNames"            dataType="String"           multiple="true"/>
-	<contextDataDef name="jsonMetadata"             dataType="JSON">
-		<description>
-			Single JSON where:
-				Keys are metadata property names
-				Values are what to set the matching property to on this asset
-		</description>
-	</contextDataDef>
+	<contextDataDef name="categoryNoDepartment" 	dataType="String"/>
+	<contextDataDef name="collectionDefault" 		dataType="String"/>
+
 	<contextDataDef name="linkMetadata"             dataType="JSON"             multiple="true">
 		<description>
 			Array of JSONs where:

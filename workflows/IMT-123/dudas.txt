@@ -1,20 +1,20 @@
 
 
-Frase para poner en los flujos que modifiqué de LB:
-This is fair use of original workflow xxxx (_xxxx.xml) , property of Levels Beyond Inc. 
+
+
+Cambiar del readme  asynchronously por paralel
+
+I decided to customize all dependences and use standard. 
+I reused some code from standard workflows provided by Lebels Beyond Inc.
+
 
 
 sacar lineas documentadas de los groovies
-
-debería borrar los files de la entrada despues de ingestarlos?
 
 no toma el aac como audio, 
 
 revisar proxy failed para documentos:  no termina nunca el porceso
 
-verificar si se repite el mismo file en la lista entonces invalidarlos. 
-
-como puedo ver si existe un campo o si debo crearlo. :  
 
 como puedo obtener el valor de un campo. Metabrowser, Assetmaster.
 
