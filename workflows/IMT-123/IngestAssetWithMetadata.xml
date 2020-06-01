@@ -80,10 +80,12 @@ It devives from _anyAssetIngest.xml workflow.
 	</executeSubflowStep>
 
 
+
 	<executeSubflowStep name="set metadata"
 		targetWorkflowId="${metadataSubflow}"
 		subjectChangePath="${assetMaster}"
 		subflowTargetDataDef="asset"
+
 		executionLabelExpression="Add any collections, categories, and metadata"
 		pctComplete="50"
 		nextStep="create proxies"
@@ -96,6 +98,7 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="categoryNames"            subflowDataDef="categoryNames"/>
 		<subflowContextDataMapping parentDataDef="jsonMetadata"             subflowDataDef="jsonMetadata"/>
 		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
+
 	</executeSubflowStep>
 
 
@@ -104,6 +107,7 @@ It devives from _anyAssetIngest.xml workflow.
 		subjectChangePath="${assetMaster}"
 		waitForCompletionExpression="${!asyncProxies}"
 		executionLabelExpression="Creating proxies ${asyncProxies? 'asynchronous' : 'synchronous'}"
+		resultDataDef="failOnProxiesError"
 		pctComplete="99"
 		nextStep="set proxyTriage flag"
 		>
@@ -134,7 +138,7 @@ It devives from _anyAssetIngest.xml workflow.
 
 	<saveDataObjectStep name="set proxyTriage flag"
 						dataObjectExpression="${assetMaster.metadata}"
-						executionLabelExpression="setting proxyTriage metadata checkbox to true"
+						executionLabelExpression="setting proxyTriage metadata checkbox to ${failOnProxiesError}"
 						nextStep="set jsonMetadata"
 	>
 		<property name="proxyTriage">${failOnProxiesError}</property>
@@ -145,7 +149,7 @@ It devives from _anyAssetIngest.xml workflow.
 <setContextData name="set jsonMetadata"
 				executionLabelExpression="modifying jsonMetadata"
 				targetDataDef="jsonMetadata"
-				valueExpression="{'posterUrl': 'https://s3-us-west-2.amazonaws.com/svodimage/MVMZ1973_16x9_no_title.jpg','height': 1080,'width': 1920}"
+				valueExpression="{'fileName': '${#filename(fileToIngest)}','proxyStatus': '${failOnProxiesError}'}"
 				nextStep="end" />
 
 	<!-- ................................................... End Steps .................................................... -->

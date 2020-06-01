@@ -26,6 +26,7 @@
     subjectDOClassName="AudioAssetMaster"
     showInUserInterface="false"
     deadlineExpression=""
+	resultDataDef="failOnError"
     sdkVersion="5.21"
 	>
 	
@@ -49,7 +50,7 @@
 		</transition>
 		<!-- Nothing to do -->
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>set failOnError flag</targetStepName>
 		</transition>
 	</noopStep>
 	
@@ -144,7 +145,7 @@
 			<targetStepName>delete temp proxy file</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>set failOnError flag</targetStepName>
 		</transition>
 	</noopStep>
 	
@@ -154,10 +155,15 @@
 		continueOnException="true"
 		executionLabelExpression="deleting ${tempProxyFile.absolutePath}"
 		pctComplete="99"
-		nextStep="end"
+		nextStep="set failOnError flag"
 		/>
-	
-	
+
+	<setContextData name="set failOnError flag"
+					executionLabelExpression="Setting value failOnError flag to false"
+					targetDataDef="failOnError"
+					valueExpression="false"
+					nextStep="end"
+	/>
 	<!-- ...................................................... End Steps ...................................................... -->
 	<!-- success -->
 	<noopStep name="end"	pctComplete="100"/>

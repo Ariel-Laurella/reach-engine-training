@@ -12,7 +12,7 @@ It devives from _anyDirectoryIngest.xml workflow.
     name="Ingest Directory With Metadata"
     executionLabelExpression="Ingest Directory With Metadata | Directory: ${directoryToIngest.absolutePath}"
     deadlineExpression=""
-    subjectDOClassName=""
+	subjectDOClassName=""
     resultDataDef=""
     showInUserInterface="true"
     sdkVersion="5.21"
@@ -184,6 +184,14 @@ for (def row in csvRows){
         {
         	rowValue = rowValue.replace(",","|").replace("\"","")
         }
+
+        if ( rowValue.trim() == ""  &&  reachFieldNames[j] == "category")
+		{
+		   rowValue = categoryNoDepartment.toString()
+		}
+
+
+
         mapSingleLine.put(reachFieldNames[j], rowValue)
     }
     mapSingleLine.put("proxyTriage","false")
@@ -463,11 +471,11 @@ return jsonRows
 		</script>
 	</groovyStep>
 
-	<!-- update metadata list: running ingest-->
+	<!-- update categories metadata to ingest-->
 	<groovyStep	name="update category metadata to ingest"
 				   resultDataDef="categoryNames"
-				   executionLabelExpression="searching metadata for file ${filesToIngest[fileIndex] "
-				   nextStep="process file"
+				   executionLabelExpression="updating metadata about category"
+				   nextStep="update collection to allocate asset"
 	>
 		<script>
 			<![CDATA[
@@ -483,17 +491,50 @@ return jsonRows
 		def catElements =  mapMetadata.get("category").replace("\"","").split(",")
 
 		for (def catElement in catElements){
-
 			categories.add(catElement)
-
 		}
 
-		return categories
 
+		return categories
        ]]>
 		</script>
 	</groovyStep>
 
+
+	<!-- update collection to allocate asset-->
+	<groovyStep	name="update collection to allocate asset"
+				   resultDataDef="collections"
+				   executionLabelExpression="updating metadata about collection"
+				   continueOnException="true"
+				   nextStep="process file"
+
+	>
+		<script>
+			<![CDATA[
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+def ArrayCollections = new ArrayList()
+def slurper = new JsonSlurper()
+
+Map mapMetadata = slurper.parseText(jsonMetadata.toString())
+
+def collElements =  mapMetadata.get("collection").split(",")
+for (def collElement in collElements)
+{
+    ArrayCollections.add("[AssetCollection." + collElement + "]")
+}
+if (ArrayCollections.size() == 0)
+{
+    ArrayCollections.add("[AssetCollection.orphaned]")
+}
+
+return ArrayCollections
+
+       ]]>
+		</script>
+	</groovyStep>
 
 
 	<!-- process file asynchronously -->
@@ -606,14 +647,14 @@ return jsonRows
 	<!-- ............................................... Context Data Defs ................................................ -->
 
 	<!-- ....... User Input Variables ........ -->
-	<contextDataDef name="directoryToIngest" 		dataType="Directory"	userInput="true"    label="Directory To Ingest"  required="false" displayIndex="1" />
-	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="false" displayIndex="2" />
-	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="false" displayIndex="3" />
+	<contextDataDef name="directoryToIngest" 		dataType="Directory"	userInput="true"    label="Directory To Ingest"  required="true" displayIndex="1" />
+	<contextDataDef name="csvMetadataFile" 			dataType="File"			userInput="true"    label="Metadata File (.csv)"  required="true" displayIndex="2" />
+	<contextDataDef name="jsonMappingFile" 			dataType="File"			userInput="true"    label="Mapping File (.json)"  required="true" displayIndex="3" />
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
-
+	<contextDataDef name="categoryNoDepartment" dataType="String"			defaultDataExpression="no department" />
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
@@ -685,7 +726,7 @@ return jsonRows
 	<contextDataDef name="recordNumber" dataType="String" defaultDataExpression="100201"  />
 
 
-	<contextDataDef name="collections"              dataType="Data Object"  label="Collections"          multiple="true" />
+	<contextDataDef name="collections"              dataType="Data Object"  multiple="true" defaultDataExpression="${subject}" />
 	<contextDataDef name="metadataForm"             dataType="MetadataForm" label="Metadata Form"/>
 
 	<!-- metadata options -->

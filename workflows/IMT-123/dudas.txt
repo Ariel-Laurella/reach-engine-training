@@ -26,10 +26,18 @@ collection and category son los campos existenten. no son campos nuevos.
 
 I made the mistake creating a wrong field ptoxyTriege instead of proxyTriage.  
 
+Agregar al Pull Req que sería bueno tener los workflows de vantage en backup
 
-
+poner todos los fail y los end workflows en 100%
 
 ------------------------------------
 
 add items to picklist --> lo encontr{e en updateMetadataFromFileMakerProAsset.xml
+
+
+El mensaje de fail puede ser algo como este:
+<failWorkflowStep name="fail original video delete"
+        reasonExpression="Original video failed to delete."
+        executionLabelExpression="Original video failed to delete."
+        pctComplete="100"
 

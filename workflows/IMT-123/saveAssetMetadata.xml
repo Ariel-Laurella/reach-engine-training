@@ -228,6 +228,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 	<nimbus:changeMetaCategoryStep name="save categories by object"
 		targetObjectExpression="${asset}"
 		executionLabelExpression="save categories on asset from dataDef &quot;combinedCategories&quot;"
+	    continueOnException="true"
 		pctComplete="70"
 		>
 		<exception-transition type="WorkflowException">
@@ -251,7 +252,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 		executionLabelExpression="could not save categories. | fail? ${failOnError}"
 		>
 		<transition condition="${failOnError}">
-			<targetStepName>error saving categories</targetStepName>
+			<targetStepName>save in default category</targetStepName>    <!-- change "error saving categories" by "save in default category" -->
 		</transition>
 		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
 			<targetStepName>save categories by name</targetStepName>
@@ -268,6 +269,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 	<nimbus:changeMetaCategoryStep name="save categories by name"
 		targetObjectExpression="${asset}"
 		executionLabelExpression="save categories on asset from dataDef &quot;categoryNames&quot;"
+		continueOnException="true"
 		pctComplete="80"
 		>
 		<exception-transition type="WorkflowException">
@@ -277,18 +279,48 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>add asset to collections</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>query for category</targetStepName>
 		</transition>
 		
 		<nimbus:addCategory>${categoryNames}</nimbus:addCategory>
 	</nimbus:changeMetaCategoryStep>
-	
-	
+
+
+	<!-- Query for the given category -->
+	<queryStep name="query for category"
+			   executionLabelExpression="Querying for the category Found"
+			   targetDataObjectClass="AssetCategory"
+			   resultDataDef="combinedCategories"
+	>
+		<transition condition="${(categoryNames != null AND categoryNames.size() &gt; 0  AND combinedCategories == null )}">
+			<targetStepName>category name error</targetStepName>
+		</transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="name" op="eq">
+							<test value="${categoryNames[0]}" />
+						</condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+
+
 	<noopStep name="category name error"
 		executionLabelExpression="could not save categories. | fail? ${failOnError}"
 		>
 		<transition condition="${failOnError}">
-			<targetStepName>error saving categories</targetStepName>
+			<targetStepName>save in default category</targetStepName>
 		</transition>
 		<transition condition="${collections != null AND collections.size() &gt; 0}">
 			<targetStepName>add asset to collections</targetStepName>
@@ -297,28 +329,55 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>end</targetStepName>
 		</transition>
 	</noopStep>
-	
+
+	<nimbus:changeMetaCategoryStep name="save in default category"
+								   targetObjectExpression="${asset}"
+								   executionLabelExpression="saving in category ${categoryNoDepartment}"
+								   pctComplete="80"
+	>
+		<exception-transition type="WorkflowException">
+			<targetStepName>category name error</targetStepName>
+		</exception-transition>
+		<transition condition="${collections != null AND collections.size() &gt; 0}">
+			<targetStepName>add asset to collections</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>end</targetStepName>
+		</transition>
+
+		<nimbus:addCategory>${categoryNoDepartment}</nimbus:addCategory>
+	</nimbus:changeMetaCategoryStep>
+
+
 	<addToCollectionStep name="add asset to collections"
 		executionLabelExpression="save asset to collections from dataDef &quot;collections&quot;"
 		dataObjectsExpression="${asset}" 
 		collectionsExpression="${collections}"
 		pctComplete="99"
 		nextStep="end"/>
-		
+
+
+
+
+
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
-	<noopStep name="end"	pctComplete="100"/>
+	<noopStep name="end"
+			  pctComplete="100"/>
 	
 	<!-- fail -->
-	<failWorkflowStep name="error combining metadata" 
-		reasonExpression="error combining metadata"
-		executionLabelExpression="error combining metadata"
+	<failWorkflowStep 	name="error combining metadata"
+						reasonExpression="error combining metadata"
+						executionLabelExpression="error combining metadata"
+						 pctComplete="100"
+
 		/>
 	
 	
 	<failWorkflowStep name="error saving categories" 
 		reasonExpression="Error saving categories. Check workflow steps for errors."
 		executionLabelExpression="Error saving categories. Check workflow steps for errors."
+					  pctComplete="100"
 		/>
 	
 	
@@ -328,6 +387,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 	<contextDataDef name="failOnError"          dataType="Boolean"          defaultDataExpression="${#sysconfig('workflows.default.metadata.failOnError') ?: true}"/>
 	<contextDataDef name="categories" 		    dataType="Data Object"	    multiple="true"/>
 	<contextDataDef name="categoryNames"        dataType="String"           multiple="true"/>
+	<contextDataDef name="categoryNoDepartment" dataType="String"			multiple="true" defaultDataExpression="no department" />
 	<contextDataDef name="collections" 		    dataType="Data Object"	    multiple="true"/>
 	<contextDataDef name="metadataForm"         dataType="MetadataForm"/>
 	<contextDataDef name="jsonMetadata"         dataType="JSON">

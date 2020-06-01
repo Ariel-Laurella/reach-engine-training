@@ -25,7 +25,7 @@
     description=""
     subjectDOClassName="AssetMaster"
     showInUserInterface="false"
-    resultDataDef=""
+    resultDataDef="failOnError"
     deadlineExpression=""
     sdkVersion="5.21"
     >
@@ -61,7 +61,7 @@
         targetWorkflowId="${videoProxySubflow}"
         subjectChangePath="${subject}"
         pctComplete="95"
-
+		resultDataDef="failOnError"
         nextStep="end"
 
         >
@@ -86,7 +86,8 @@
         targetWorkflowId="${audioProxySubflow}"
         subjectChangePath="${subject}"
         pctComplete="99"
-        nextStep="set failOnError true"
+		resultDataDef="failOnError"
+        nextStep="end"
         >
 	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
 	    <subflowContextDataMapping parentDataDef="proxyFile"                subflowDataDef="proxyFile"/>
@@ -95,16 +96,10 @@
 	    <subflowContextDataMapping parentDataDef="audioProxyTemplate"       subflowDataDef="proxyTemplate"/>
     </executeSubflowStep>
 
-	<setContextData name="set failOnError true"
-					targetDataDef="failOnError"
-					valueExpression="true"
-					nextStep="end"
-					/>
-
-
-    <executeSubflowStep name="create image proxies"
+	<executeSubflowStep name="create image proxies"
         targetWorkflowId="${imageProxySubflow}"
         subjectChangePath="${subject}"
+		resultDataDef="failOnError"
         pctComplete="99"
         nextStep="end"    
         >
@@ -123,6 +118,7 @@
         targetWorkflowId="${documentProxySubflow}"
         subjectChangePath="${subject}"
         pctComplete="99"
+		resultDataDef="failOnError"
         nextStep="end"    
         >
 	    <subflowContextDataMapping parentDataDef="failOnError"              subflowDataDef="failOnError"/>
