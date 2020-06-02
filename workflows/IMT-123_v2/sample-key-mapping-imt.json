@@ -1,0 +1,11 @@
+{
+	"uuid":"recordOID",
+	"wid":"weekID",
+	"location":"eventLocation",
+	"description":"longDescription",
+	"short":"shortDescription",
+	"keywords":"keywords",
+	"validated":"preValidated",
+	"project":"collection",
+	"department":"category"
+}

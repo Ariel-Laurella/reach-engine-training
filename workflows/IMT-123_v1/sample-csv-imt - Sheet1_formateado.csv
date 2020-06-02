@@ -1,0 +1,50 @@
+uuid,fileName,wid,location,description,short,keywords,validated,project,department
+100201,boston 2.mov,4401,Game,"this is a description about a game that should be pretty long based on what happened. Including a quote from a player that said, ""Something like this"".",quotes,team,TRUE,,Top Secret
+100202,boston 3.mov,4401,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,,person,,Special Project 001,Top Secret
+100203,boston 4.mov,4401,,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,person,TRUE,Mantis,Video Production
+100204,boston 5.mov,4401,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. maybe-some&weird%character$strings*,weird characters,"charity,person",FALSE,Goofs,
+100205,boston 6.mov,4401,Practice,this is a description about a game that should be pretty long based on what happened. More:weird;strings'could]be[here{},more weird characters,"person,field",TRUE,Goofs,Video Production
+100206,boston 7.mov,4401,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,"team,lockers,half",TRUE,Mantis,Video Production
+100207,boston 8.mov,4401,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,team,TRUE,Training,Media
+101001,boston copy.mov,4305,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,person,TRUE,Customs,Needs Approval
+101002,boston copy 2.mov,4305,Practice,this is a description about a game that should be pretty long based on what happened. More:weird;strings'could]be[here{},more weird characters,coach,TRUE,,Needs Approval
+101003,boston copy 3.mov,4305,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,,team,TRUE,Training,
+101004,boston copy 4.mov,4305,Game,"this is a description about a game that should be pretty long based on what happened. Including a quote from a player that said, ""Something like this"".",quotes,person,TRUE,Goofs,Video Production
+101005,boston copy 5.mov,4305,Game,,nothing weird,person,TRUE,Mantis,Video Production
+101006,boston copy 6.mov,4305,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,nothing weird,"charity,person",TRUE,Training,Media
+101007,boston copy 7.mov,4305,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,"person,field",TRUE,Post,Media
+102234,boston copy 8.mov,4501,,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,,"team,lockers,half",,Goofs,Video Production
+102235,boston copy 9.mov,4501,Game,"this is a description about a game that should be pretty long based on what happened. Including a quote from a player that said, ""Something like this"".",quotes,team,TRUE,Training,Media
+102236,boston copy 10.mov,4501,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,,TRUE,Goofs,Video Production
+102240,boston copy 12.mov,4502,Practice,,nothing weird,coach,FALSE,Mantis,Video Production
+102241,boston copy 13.mov,4502,Practice,this is a description about a game that should be pretty long based on what happened. More:weird;strings'could]be[here{},more weird characters,,TRUE,Customs,Needs Approval
+102242,boston copy 14.mov,4502,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,nothing weird,person,TRUE,Customs,Needs Approval
+102300,boston copy 15.mov,4504,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. maybe-some&weird%character$strings*,weird characters,person,TRUE,,Media
+102305,boston copy 16.mov,4505,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,"charity,person",TRUE,Post,Media
+102333,boston copy 17.mov,4507,,this is a description about some non-standard thing that happened that should be pretty long based on what happened. maybe-some&weird%character$strings*,weird characters,"person,field",TRUE,Post,Media
+105010,boston copy 19.mov,4610,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,,,,
+105011,boston copy 20.mov,4610,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,team,TRUE,Goofs,Video Production
+105012,boston copy 21.mov,4610,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,,TRUE,Mantis,Video Production
+105013,boston copy 23.mov,4610,,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,coach,TRUE,Special Project 001,Top Secret
+,boston copy 24.mov,4610,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,,"person,field",TRUE,Special Project 001,Top Secret
+105015,boston copy 26.mov,4610,,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,,TRUE,Post,Media
+105016,boston copy 28.mov,4610,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,team,TRUE,Mantis,Video Production
+105017,boston copy 29.mov,4610,Practice,,nothing weird,person,TRUE,Post,Media
+101001,boston copy 30.mov,4611,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,nothing weird,coach,,Post,Media
+105019,boston copy 31.mov,4620,,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,nothing weird,team,TRUE,,Media
+105020,boston copy 32.mov,4620,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,,person,TRUE,Post,Media
+101002,boston copy 33.mov,4611,Offsite,this is a description about some non-standard thing that happened that should be pretty long based on what happened. no weird characters here,nothing weird,person,TRUE,,Media
+105021,boston copy 34.mov,4620,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,"charity,person",,Customs,
+,boston copy 35.mov,4620,Game,"this is a description about a game that should be pretty long based on what happened. Including a quote from a player that said, ""Something like this"".",quotes,,TRUE,Training,Media
+105023,boston copy 36.mov,4620,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,"team,lockers,half",TRUE,Post,Media
+,boston copy 38.mov,4621,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,team,TRUE,Post,Media
+105025,boston copy 39.mov,4621,Game,,,person,TRUE,Training,Media
+201111,camera.jpg,4610,Game,"this is a description about a game that should be pretty long based on what happened. Including a quote from a player that said, ""Something like this"".",quotes,coach,,Post,
+201112,editting.jpeg,4611,Practice,this is a description about a game that should be pretty long based on what happened. No more weird strings here.,nothing weird,coach,TRUE,Training,Media
+312100,some text file.txt,4610,Other,qoiriwiqriqwirqrkrijj  jsdajsajdja djasdjajjjieieie skdnvnrnnnisisis,gibberish,,TRUE,Post,Media
+312101,document.txt,4611,Other,jhjhjkhtjjttjt ddwwiowoqoqoqo fdgfdgdfgjhjrjr,gibberish,,TRUE,Post,Media
+505661,sample.aac,4610,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,team,TRUE,Training,Media
+505600,sample.mp3,4611,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,,person,FALSE,Post,Media
+505610,sample.wav,4612,Game,this is a description about a game that should be pretty long based on what happened. No quotes to include today.,nothing weird,coach,TRUE,Special Project 001,
+664301,sample.pptx,4610,Other,ghhhjddkdkdkd riririqo vvmbnjyyypa,gibberish,,TRUE,Special Project 001,Top Secret
+333333,abcdefg.txt,1234,,Something goes here,,,TRUE,Special Project 001,Top Secret

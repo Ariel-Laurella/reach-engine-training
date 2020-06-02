@@ -22,7 +22,44 @@ It devives from _anyDirectoryIngest.xml workflow.
 	
 	
 	<!-- ................................................... Initial Checks .................................................... -->
-
+	<queryStep name="check if workflow is running"
+		targetDataObjectClass="WorkflowExecution"
+		resultDataDef="currentExecutions"
+		executionLabelExpression="Is a workflow running on this directory already? ${currentExecutions.size() != 0}"
+		>
+		<transition condition="${currentExecutions.size() == 0}">
+			<targetStepName>check if directory is empty</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>workflow is running</targetStepName>
+		</transition>
+		
+		<criteria>
+			<![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="workflowVersion.workflow.key" op="eq">
+                            <test value="${ #this.workflow.workflowVersion.workflow.key }" />
+                        </condition>
+                        <condition property="uuid" op="noteq">
+                            <test value="${ #this.workflow.uuid }" />
+                        </condition>
+                        <condition property="executionLabel" op="like">
+							<test value="%${T(org.apache.commons.lang.StringEscapeUtils).escapeXml(directoryToIngest.absolutePath)}%" />
+						</condition>
+                        <condition property="status" op="in">
+                            <tests>
+                                <test value="CREATED" />
+                                <test value="QUEUED" />
+                                <test value="EXECUTING" />
+                            </tests>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
+	
 	<noopStep name="check if directory is empty"
 		executionLabelExpression="are there files in the directory? ${filesToIngest != null AND filesToIngest.size() &gt; 0}"
 		>
@@ -33,7 +70,6 @@ It devives from _anyDirectoryIngest.xml workflow.
 			<targetStepName>no files to process</targetStepName>
 		</transition>
 	</noopStep>
-
 
 	<copyFileStep name="copy csv from S3 to Local"
 				  executionLabelExpression="copy csv file from S3 to Local Reachengine"
@@ -51,7 +87,7 @@ It devives from _anyDirectoryIngest.xml workflow.
 				  targetFilenameExpression="${uuid}.json"
 				  nextStep="get metadata list from csv" />
 
-<!--Convert csv to Json format  -->
+
 	<groovyStep	name="get metadata list from csv"
 				   resultDataDef="MetadataFull"
 				   executionLabelExpression="getting metadata from csv"
@@ -60,6 +96,8 @@ It devives from _anyDirectoryIngest.xml workflow.
 	>
 		<script>
 			<![CDATA[
+
+		// Convert csv to Json format
 
 			import groovy.json.JsonOutput
 			import groovy.json.JsonSlurper
@@ -114,7 +152,7 @@ for (int i = 0; i < jsonMappingelemnts.size(); i++) {
 csvRows.remove(0)
 
 
-// start loop over the lines in the CSV
+// start looping over the lines in the CSV
 def rowCounter = 0
 
 for (def row in csvRows){
@@ -191,6 +229,7 @@ for(int i=0; i<jsonRows.size() ; i++)
 
 }
 
+//return JsonOutput.toJson(jsonRows)
 return jsonRows
 
 
@@ -255,7 +294,7 @@ return jsonRows
 
 	<noopStep name="get number of files to ingest">
 		<transition condition="${executingSubflows.size() == 0 AND fileIndex == totalFiles }">
-			<targetStepName>set notification with failed items</targetStepName>
+			<targetStepName>make final message</targetStepName>
 		</transition>
 		<transition condition="${executingSubflows.size() &gt; 10  OR (executingSubflows.size() != 0 AND fileIndex == totalFiles)}">
 			<targetStepName>wait some time</targetStepName>
@@ -520,272 +559,25 @@ return jsonRows
 	/>
 <!-- ................................................... Finish Loop ............................................... -->
 
+	<noopStep name="make final message"
+			  nextStep="sendEmail"
+			  />
 
-<!-- .......................................Notifications ......................................................... -->
-<!-- The steps below are intended to make a final message with all errors to send by email to the user. I know that is
-     not the best way to make it. It is a work arround, because it was too late when I could understand the difference
-     between asynchronious and parallel excecution of the subflow "process file" above.
-
-     Unfortunatelly, I am not able at this time to test the notifications. something happened with the test envirenment
-     of RE. Sudenly it stop working some module on RE, because no groovy step start. In fact at this time, 06/02/2020
-     3:12 pacific I tried to submit a standard workflow like "Any asset ingest" and it dont work.
-
+<!--
+	<executeSubflowStep name="make final message"
+						executionLabelExpression="ingesting file (${fileToIngest.name})"
+						subjectChangePath="${MetadataFull[0]}"
+						subflowTargetDataDef="MetadataFull"
+						targetWorkflowId="notificationsCreate"
+						resultDataDef="notificationResult"
+						waitForCompletionExpression="true"
+						continueOnException="true"
+						pctComplete="99"
+						nextStep="sendEmail"
+	>
+		<subflowContextDataMapping parentDataDef="MetadataFull"             subflowDataDef="MetadataFull"/>
+	</executeSubflowStep>
 -->
-
-	<!--make notificationResult with failed rows in the sheet -->
-	<groovyStep	name="set notification with failed items"
-				   resultDataDef="notificationResult"
-				   executionLabelExpression="setting notification with failed items"
-				   nextStep="set json element to process pending records"
-	>
-		<script>
-			<![CDATA[
-
-		import groovy.json.JsonOutput
-		import groovy.json.JsonSlurper
-
-		def slurper = new JsonSlurper()
-		Map[] jsonList = slurper.parseText(MetadataFull.toString())
-		def resultString = ""
-
-		for (def jsonRow in jsonList)
-		{
-			if(jsonRow.get("state") == "failed" )
-			{
-				resultString = resultString + "\r\n" + jsonRow.get("message")
-			}
-		}
-
-		return resultString
-       ]]>
-		</script>
-	</groovyStep>
-
-
-
-	<!--get json element for pending elemnts of the sheet that need to be verified-->
-	<groovyStep	name="set json element to process pending records"
-				   resultDataDef="jsonMetadata"
-				   executionLabelExpression="setting json element ${jsonIndex} to process"
-	>
-		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
-			<targetStepName>ask for null jsonMetadata</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>increment index</targetStepName>
-		</transition>
-		<script>
-			<![CDATA[
-
-			mapMetadata = [:]
-			def slurper = new JsonSlurper()
-			Map[] jsonList = slurper.parseText(MetadataFull.toString())
-
-			for (int i = jsonIndex; i<jsonList.size(); i++)
-			{
-				if(jsonList[i].get("state") == "pending" )
-				{
-					mapMetadata.put("recordOID",jsonList[i].get("recordOID"))
-					mapMetadata.put("fileName",jsonList[i].get("fileName"))
-					mapMetadata.put("collection",jsonList[i].get("collection"))
-					mapMetadata.put("category",jsonList[i].get("category"))
-					mapMetadata.put("index",i)
-					break
-				}
-			}
-
-			return mapMetadata
-       ]]>
-		</script>
-	</groovyStep>
-
-	<noopStep name="ask for null jsonMetadata">
-		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
-			<targetStepName>set new JsonIndex</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>verify if fail or success message</targetStepName>
-		</transition>
-	</noopStep>
-
-
-	<!--set new JsonIndex -->
-	<setContextData name="set new JsonIndex"
-					targetDataDef="jsonIndex"
-					valueExpression="${jsonMetadata.get('index').asInt()}"
-					nextStep="query for recordOID"
-	/>
-
-
-	<!--Get category value from recordOID-->
-	<queryStep name="query for recordOID"
-			   executionLabelExpression="Verifying if recordOID already exist"
-			   targetDataObjectClass="AssetMaster"
-			   resultDataDef="resultObject"
-
-	>
-		<transition condition="${resultObject != null}">
-			<targetStepName>query for collection</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>fail for recordOID not found</targetStepName>
-		</transition>
-
-		<criteria>
-			<![CDATA[
-                <criteria>
-                    <and>
-                        <condition property="metadata.recordOID" op="eq">
-                            <test value="${ jsonMetadata.get('recordOID').asText()}"/>
-                        </condition>
-                    </and>
-                </criteria>
-            ]]>
-		</criteria>
-	</queryStep>
-
-	<!-- fail for recordOID not found -->
-	<groovyStep	name="fail for recordOID not found"
-				   resultDataDef="notificationResult"
-				   executionLabelExpression="setting recordOID not found"
-				   nextStep="increment index"
-	>
-		<script>
-			<![CDATA[
-			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " not ingested or recordIOD not found."
-			return resultString
-       ]]>
-		</script>
-	</groovyStep>
-
-	<!--check if asset is in collection orphaned -->
-	<queryStep name="query for collection"
-			   targetDataObjectClass="AssetCollection"
-			   executionLabelExpression="check if asset is in collection orphaned"
-			   resultDataDef="collection"
-	>
-		<transition condition="${collection == null}">
-			<targetStepName>query for category</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>fail for collection orphaned</targetStepName>
-		</transition>
-
-		<criteria>
-			<![CDATA[
-                <criteria>
-                    <and>
-                        <condition property="name" op="eq">
-                            <test value="orphaned" />
-                        </condition>
-                    </and>
-                </criteria>
-            ]]>
-		</criteria>
-	</queryStep>
-
-	<!-- fail for collection orphaned -->
-	<groovyStep	name="fail for collection orphaned"
-				   resultDataDef="notificationResult"
-				   executionLabelExpression="setting recordOID not found"
-				   nextStep="query for category"
-	>
-		<script>
-			<![CDATA[
-			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has failed to add in collection " + jsonMetadata.get("collection") + ". It is in orphaned collection."
-			return resultString
-       ]]>
-		</script>
-	</groovyStep>
-
-
-
-	<!--check if category asigned to asset in the sheet exist.
-	    If no, then the asset would be added to -no department -->
-	<queryStep name="query for category"
-			   executionLabelExpression="Querying for the category Found"
-			   targetDataObjectClass="AssetCategory"
-			   resultDataDef="combinedCategories"
-	>
-		<transition condition="${(jsonMetadata.get('category').asText() != '' AND combinedCategories.size() == 0)}">
-			<targetStepName>fail for category not found</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>increment index</targetStepName>
-		</transition>
-
-		<criteria>
-			<![CDATA[
-				<criteria>
-					<and>
-						<condition property="name" op="eq">
-							<test value="${jsonMetadata.get('category').asText()}" />
-						</condition>
-					</and>
-				</criteria>
-			]]>
-		</criteria>
-	</queryStep>
-
-
-	<!-- fail for category not foud -->
-	<groovyStep	name="fail for category not found"
-				   resultDataDef="notificationResult"
-				   executionLabelExpression="setting category not found"
-				   nextStep="increment index"
-	>
-		<script>
-			<![CDATA[
-			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has assigned the category " + jsonMetadata.get("category") + ", but it does not exist on Reachengine. Verify if the asset was added to the no department category."
-			return resultString
-       ]]>
-		</script>
-	</groovyStep>
-
-
-	<!-- set to next element -->
-	<setContextData name="increment index"
-					targetDataDef="jsonIndex"
-					valueExpression="${jsonIndex + 1}"
-	>
-		<transition condition="${jsonIndex == MetadataFull.size()}">
-			<targetStepName>verify if fail or success message</targetStepName>
-		</transition>
-		<transition condition="${true}">
-			<targetStepName>set json element to process pending records</targetStepName>
-		</transition>
-	</setContextData>
-
-
-	<!-- verify if there are no errors, then make a success message -->
-
-	<groovyStep	name="verify if fail or success message"
-				   resultDataDef="notificationResult"
-				   executionLabelExpression="verifying if fail or success message"
-				   nextStep="sendEmail"
-	>
-		<script>
-			<![CDATA[
-			def resultString = notificationResult
-
-			if (resultString == "")
-			{
-				resultString = "Dear user, no error has been found during the ingest process."
-			}
-			else
-			{
-				resultString =  "Dear user, find below the erros during the ingest process. " + "\r\n" + notificationResult
-			}
-			return resultString
-       ]]>
-		</script>
-	</groovyStep>
-
-
-
-
-
-
 
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
@@ -829,6 +621,7 @@ return jsonRows
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
+	<contextDataDef name="MetadataFull2" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="jsonResultList" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="notificationResult" 		dataType="String" />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
@@ -841,7 +634,6 @@ return jsonRows
 
 
 	<contextDataDef name="resultObject" dataType="Data Object" />
-	<contextDataDef name="jsonIndex" 				dataType="Integer" defaultDataExpression="0" />
 
 
 	<!-- .......... Input Variables .......... -->
@@ -905,8 +697,6 @@ return jsonRows
 
 	<contextDataDef name="collections"              dataType="Data Object"  multiple="true" defaultDataExpression="${subject}" />
 	<contextDataDef name="metadataForm"             dataType="MetadataForm" label="Metadata Form"/>
-	<contextDataDef name="collection"            	dataType="Data Object"         />
-	<contextDataDef name="combinedCategories"   	dataType="Data Object"      multiple="true"/>
 
 	<!-- metadata options -->
 	<contextDataDef name="failOnMetadataError"      dataType="Boolean"/>

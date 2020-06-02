@@ -85,8 +85,9 @@ Before importing the workflows, the user must set up the following in Reachengin
 * f. proxiesAssetCreate
 * g. saveAssetMetadata
 * h. ingestAssetBase
-* i. IngestAssetWithMetadata
-* j. IngestDirectoryWithMetadata
+* i. notificationsCreate
+* j. IngestAssetWithMetadata
+* k. IngestDirectoryWithMetadata
 
 IMPORTANT: Once you define a metadata field, it is not possible to modify the Id, name and type. So, at this point, be careful to assign the proper field name and type of data.
 
@@ -95,19 +96,7 @@ IMPORTANT: Once you define a metadata field, it is not possible to modify the Id
 
 ## Workflow: IngestDirectoryWithMetadata
 
-This is the main workflow submitted by the UI. Here the user must input directory, CSV metadata file (.csv) and Metadata mapping file (.json). Once all of this data has been entered, the system starts the ingest with the following actions:
-
-* It checks if directory is empty.
-* It copies csv and Json from S3 to temp local directory.
-* It converts csv sheet to a json variable called (Metadatafull). 
-* Csv and json files are deleted. 
-* For each file in the directory it does the following:
-* It verifies that it has recordOID and no other asset in RE has the same one.
-* It verifies that no other file with the same name is present in the Metadatafull.
-* All rows in Metadatafull that complies condition above are flag as "pending".
-* It starts the process to ingest for each pending file, through the subflows described below.
-* Once all pending files are ingested, the steps that continue build a string variable with all error occurred in order to notify the user at the end by email.
-       
+This is the main workflow submitted by the UI. Here the user must input directory, CSV metadata file (.csv) and Metadata mapping file (.json). Once all of this data has been entered, the system starts the ingest following the steps indicated below:
 
 
 ## Workflows (subflow): IngestAssetWithMetadata

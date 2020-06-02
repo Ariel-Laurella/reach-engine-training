@@ -1,0 +1,43 @@
+
+
+
+
+Cambiar del readme  asynchronously por paralel
+
+I decided to customize all dependences and use standard. 
+I reused some code from standard workflows provided by Lebels Beyond Inc.
+
+
+
+sacar lineas documentadas de los groovies
+
+no toma el aac como audio, 
+
+revisar proxy failed para documentos:  no termina nunca el porceso
+
+
+como puedo obtener el valor de un campo. Metabrowser, Assetmaster.
+
+como busco un asset pot el el recordOID
+
+and how to make an update of metadata.
+
+collection and category son los campos existenten. no son campos nuevos.
+
+I made the mistake creating a wrong field ptoxyTriege instead of proxyTriage.  
+
+Agregar al Pull Req que sería bueno tener los workflows de vantage en backup
+
+poner todos los fail y los end workflows en 100%
+
+------------------------------------
+
+add items to picklist --> lo encontr{e en updateMetadataFromFileMakerProAsset.xml
+
+
+El mensaje de fail puede ser algo como este:
+<failWorkflowStep name="fail original video delete"
+        reasonExpression="Original video failed to delete."
+        executionLabelExpression="Original video failed to delete."
+        pctComplete="100"
+

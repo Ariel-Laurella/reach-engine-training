@@ -1,0 +1,347 @@
+<!--
+  ~ Levels Beyond CONFIDENTIAL
+  ~
+  ~ Copyright 2003 - 2018 Levels Beyond Incorporated
+  ~ All Rights Reserved.
+  ~
+  ~ NOTICE:  All information contained herein is, and remains
+  ~ the property of Levels Beyond Incorporated and its suppliers,
+  ~ if any.  The intellectual and technical concepts contained
+  ~ herein are proprietary to Levels Beyond Incorporated
+  ~ and its suppliers and may be covered by U.S. and Foreign Patents,
+  ~ patents in process, and are protected by trade secret or copyright law.
+  ~ Dissemination of this information or reproduction of this material
+  ~ is unlawful and strictly forbidden unless prior written permission is obtained
+  ~ from Levels Beyond Incorporated.
+  -->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+    id="imageProxiesCreate"
+    name="Create Image Proxies"
+    executionLabelExpression="Create Image Proxies | Asset Name: ${subject.name}"
+    description=""
+    subjectDOClassName="ImageAssetMaster"
+    showInUserInterface="false"
+	resultDataDef="failOnError"
+	deadlineExpression=""
+    sdkVersion="5.21"
+    >
+	
+	<initialStepName>check proxies options</initialStepName>
+	
+	
+	<!-- ................................................... Initial Checks .................................................... -->
+	<noopStep name="check proxies options"
+		executionLabelExpression="Proxy option? ${proxyFile != null AND !proxyFile.absolutePath.equals('')? 'File' : (createProxy? 'Create' : 'None')} | Thumb option? ${thumbFile != null AND !thumbFile.absolutePath.equals('')? 'File' : (createThumb? 'Create' : 'None')}"
+		pctComplete="2"
+		>
+		<!-- Proxy -->
+		<transition condition="${proxyFile != null AND !proxyFile.absolutePath.equals('') AND #proxyContent(subject) != null AND #proxyContent(subject).file.exists()}">
+			<targetStepName>delete old proxy</targetStepName>
+		</transition>
+		<transition condition="${proxyFile != null AND !proxyFile.absolutePath.equals('')}">
+			<targetStepName>save proxy</targetStepName>
+		</transition>
+		<transition condition="${createProxy}">
+			<targetStepName>create proxy</targetStepName>
+		</transition>
+		<!-- Thumb -->
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('') AND #thumbnailContent(subject) != null AND #thumbnailContent(subject).file.exists()}">
+			<targetStepName>delete old thumb</targetStepName>
+		</transition>
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('')}">
+			<targetStepName>save thumb</targetStepName>
+		</transition>
+		<transition condition="${createThumb}">
+			<targetStepName>create thumb</targetStepName>
+		</transition>
+		<!-- Nothing to do -->
+		<transition condition="true">
+			<targetStepName>set failOnError flag</targetStepName>
+		</transition>
+	</noopStep>
+	
+
+	<!-- ..................................................... Proxy Steps ..................................................... -->
+	<convertImageStep name="create proxy"
+		sourceFileExpression="${sourceFile}"
+		resultDataDef="tempProxyFile"
+		targetExtensionExpression="jpg"
+		imageMagickParamsExpression="${proxyArguments}"
+		priorityExpression="${proxyPriority}"
+		continueOnException="true"
+		executionLabelExpression="create proxy from original file using ImageMagick."
+		pctComplete="35"
+		>
+		<transition condition="${tempProxyFile?.exists()}">
+			<targetStepName>set proxy file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>proxy error</targetStepName>
+		</transition>
+	</convertImageStep>
+	
+	
+	<setContextData name="set proxy file"
+		targetDataDef="proxyFile"
+		valueExpression="${tempProxyFile}"
+		pctComplete="37"
+		devStep="true"
+		>
+		<transition condition="${#proxyContent(subject) != null AND #proxyContent(subject).file.exists()}">
+			<targetStepName>delete old proxy</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>save proxy</targetStepName>
+		</transition>
+	</setContextData>
+	
+	
+	<deleteFileStep name="delete old proxy"
+		sourceFilesExpression="${ #proxyContent(subject)?.file }"
+		executionLabelExpression="deleting old proxy: ${#proxyContent(subject)?.file?.absolutePath}"
+		continueOnException="true"
+		pctComplete="40"
+		nextStep="save proxy"
+		/>
+	
+	
+	<saveAssetStep name="save proxy"
+		contentExpression="${proxyFile}"
+		contentUseExpression="Proxy"
+		versionAssetExpression="false"
+		assetExpression="${subject.currentVersion}"
+		executionLabelExpression="Save new proxy to asset | file: ${proxyFile?.absolutePath}"
+		pctComplete="45"
+		>
+		<!-- Errors -->
+		<exception-transition type="WorkflowException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<exception-transition type="AssetException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<exception-transition type="NullPointerException">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<exception-transition type="Exception">
+			<targetStepName>proxy error</targetStepName>
+		</exception-transition>
+		<!-- Thumb -->
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('') AND #thumbnailContent(subject) != null AND #thumbnailContent(subject).file.exists()}">
+			<targetStepName>delete old thumb</targetStepName>
+		</transition>
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('')}">
+			<targetStepName>save thumb</targetStepName>
+		</transition>
+		<transition condition="${createThumb}">
+			<targetStepName>create thumb</targetStepName>
+		</transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</saveAssetStep>
+	
+	
+	<noopStep name="proxy error"
+		executionLabelExpression="there was an error creating/saving proxy. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>proxy failed</targetStepName>
+		</transition>
+		<!-- Thumb -->
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('') AND #thumbnailContent(subject) != null AND #thumbnailContent(subject).file.exists()}">
+			<targetStepName>delete old thumb</targetStepName>
+		</transition>
+		<transition condition="${thumbFile != null AND !thumbFile.absolutePath.equals('')}">
+			<targetStepName>save thumb</targetStepName>
+		</transition>
+		<transition condition="${createThumb}">
+			<targetStepName>create thumb</targetStepName>
+		</transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<!-- ................................................... Thumbnail Steps ................................................... -->
+	<convertImageStep name="create thumb"
+		sourceFileExpression="${sourceFile}"
+		resultDataDef="tempThumbFile"
+		targetExtensionExpression="jpeg"
+		imageMagickParamsExpression="${thumbArguments}"
+		priorityExpression="${thumbPriority}"
+		continueOnException="true"
+		executionLabelExpression="create thumbnail from original file using ImageMagick."
+		pctComplete="80"
+		>
+		<transition condition="${tempThumbFile != null AND tempThumbFile.exists()}">
+			<targetStepName>set thumb file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>thumb error</targetStepName>
+		</transition>
+	</convertImageStep>
+	
+	
+	<setContextData name="set thumb file"
+		targetDataDef="thumbFile"
+		valueExpression="${tempThumbFile}"
+		pctComplete="82"
+		devStep="true"
+		>
+		<transition condition="${#thumbnailContent(subject) != null AND #thumbnailContent(subject).file.exists()}">
+			<targetStepName>delete old thumb</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>save thumb</targetStepName>
+		</transition>
+	</setContextData>
+	
+	
+	<deleteFileStep name="delete old thumb"
+		sourceFilesExpression="${ #thumbnailContent(subject)?.file }"
+		executionLabelExpression="deleting old thumb: ${#thumbnailContent(subject)?.file?.absolutePath}"
+		continueOnException="true"
+		pctComplete="85"
+		nextStep="save thumb"
+		/>
+	
+	
+	<saveAssetStep name="save thumb"
+		contentExpression="${thumbFile}"
+		contentUseExpression="Thumbnail"
+		versionAssetExpression="false"
+		assetExpression="${subject.currentVersion}"
+		executionLabelExpression="Save new thumb to asset | file: ${thumbFile?.absolutePath}"
+		pctComplete="90"
+		>
+		<!-- Errors -->
+		<exception-transition type="WorkflowException">
+			<targetStepName>thumb error</targetStepName>
+		</exception-transition>
+		<exception-transition type="AssetException">
+			<targetStepName>thumb error</targetStepName>
+		</exception-transition>
+		<exception-transition type="NullPointerException">
+			<targetStepName>thumb error</targetStepName>
+		</exception-transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</saveAssetStep>
+	
+	
+	<noopStep name="thumb error"
+		executionLabelExpression="there was an error creating/saving thumbnail. | fail? ${failOnError}"
+		>
+		<transition condition="${failOnError}">
+			<targetStepName>thumb failed</targetStepName>
+		</transition>
+		<!-- Nothing more to do -->
+		<transition condition="true">
+			<targetStepName>cleanup</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<!-- ................................................... Clean Up Steps .................................................... -->
+	<noopStep name="cleanup"
+		executionLabelExpression="temp files?... proxy? ${tempProxyFile != null AND tempProxyFile.exists()} | thumbnail? ${tempThumbFile != null AND tempThumbFile.exists()}"
+		pctComplete="92"
+		>
+		<transition condition="${tempProxyFile != null AND tempProxyFile.exists()}">
+			<targetStepName>delete temp proxy file</targetStepName>
+		</transition>
+		<transition condition="${tempThumbFile != null AND tempThumbFile.exists()}">
+			<targetStepName>delete temp thumbnail file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>set failOnError flag</targetStepName>
+		</transition>
+	</noopStep>
+	
+	
+	<deleteFileStep name="delete temp proxy file"
+		sourceFilesExpression="${tempProxyFile}"
+		continueOnException="true"
+		executionLabelExpression="deleting ${tempProxyFile.absolutePath}"
+		pctComplete="95"
+		>
+		<transition condition="${tempThumbFile != null AND tempThumbFile.exists()}">
+			<targetStepName>delete temp thumbnail file</targetStepName>
+		</transition>
+		<transition condition="true">
+			<targetStepName>set failOnError flag</targetStepName>
+		</transition>
+	</deleteFileStep>
+	
+	
+	<deleteFileStep name="delete temp thumbnail file"
+		sourceFilesExpression="${tempThumbFile}"
+		continueOnException="true"
+		executionLabelExpression="deleting ${tempThumbFile.absolutePath}"
+		pctComplete="99"
+		nextStep="set failOnError flag"
+		/>
+
+	<setContextData name="set failOnError flag"
+					executionLabelExpression="Setting value failOnError flag to false"
+					targetDataDef="failOnError"
+					valueExpression="false"
+					nextStep="end"
+	/>
+
+
+	<!-- ...................................................... End Steps ...................................................... -->
+	<!-- success -->
+	<noopStep name="end"	pctComplete="100"/>
+	
+	
+	<!-- fail -->
+	<failWorkflowStep name="proxy failed"
+		reasonExpression="Proxy failed. Check workflow steps for errors."
+		executionLabelExpression="Proxy failed. Check workflow steps for errors."
+		/>
+	
+	
+	<failWorkflowStep name="thumb failed"
+		reasonExpression="Thumbnail failed. Check workflow steps for errors."
+		executionLabelExpression="Thumbnail failed. Check workflow steps for errors."
+		/>
+	
+	
+	<!-- .................................................. Context Data Defs .................................................. -->
+	<!-- ............ Input Variables ............. -->
+	<contextDataDef name="failOnError"          dataType="Boolean"      defaultDataExpression="${#sysconfig('workflows.default.proxies.failOnError') ?: true}"/>
+	<!-- Proxy -->
+	<contextDataDef name="proxyFile"            dataType="File"/>
+	<contextDataDef name="createProxy" 			dataType="Boolean"		defaultDataExpression="${#sysconfig('workflows.default.proxies.image.createProxy') ?: true}"/>
+	<!-- Thumb -->
+	<contextDataDef name="thumbFile"            dataType="File"/>
+	<contextDataDef name="createThumb" 			dataType="Boolean"	    defaultDataExpression="${#sysconfig('workflows.default.proxies.image.createThumb') ?: true}"/>
+	<!-- ImageMagick args -->
+	<contextDataDef name="thumbArguments"       dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.image.thumbArguments') ?: (#sysconfig('imageAsset.thumbArguments') ?: '-flatten -strip -resize 96x72')}"/>
+	<contextDataDef name="proxyArguments"       dataType="String"       defaultDataExpression="${#sysconfig('workflows.default.proxies.image.proxyArguments') ?: (#sysconfig('imageAsset.proxyArguments') ?: '-flatten -strip -resize 600x450')}"/>
+	<contextDataDef name="prioritiesJson"       dataType="JSON">
+		<description>
+			A JSON with the structure:
+				{"proxy":x, "thumbnail":z}
+		</description>
+	</contextDataDef>
+	
+	<!-- .......... Processing variables .......... -->
+	<contextDataDef name="sourceFile" 		    dataType="File"         defaultDataExpression="${#sourceContent(subject)?.file}"/>
+	<contextDataDef name="proxyPriority"        dataType="Integer"      defaultDataExpression="${prioritiesJson?.get('proxy') != null? prioritiesJson.get('proxy').asText() : 0}"/>
+	<contextDataDef name="thumbPriority"        dataType="Integer"      defaultDataExpression="${prioritiesJson?.get('thumbnail') != null? prioritiesJson.get('thumbnail').asText() : 0}"/>
+	<contextDataDef name="tempProxyFile"        dataType="File"/>
+	<contextDataDef name="tempThumbFile"    	dataType="File"/>
+	
+</workflow>
