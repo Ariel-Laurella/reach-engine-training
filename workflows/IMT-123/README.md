@@ -47,50 +47,50 @@ Before importing the workflows, the user must set up the following in Reachengin
 1. Indicate the local path in Reachengine where the CSV excel and JSON mapping files will be temporarily copied in order to process them. The system will delete them once they have been processed. This local path must be set up in the variable "localDirectoryPath" located in the main workflow "IngestDirectoryWithMetadata".
 2. Create the following metadata fields from UI Admin-->Metadata-->Fields, according to the mapping provided in the mapping json. Make sure to put exactly Display Name and type, so you will see the name of the fields just like in the json mapping file of the specification. 
 
-Display Name: recordOID
-Type: Text(Samll)
+* Display Name: recordOID
+  Type: Text(Samll)
 
-Display Name: weekID
-Type: Text(Samll)
+* Display Name: weekID
+  Type: Text(Samll)
 
-Display Name: Event Location
-Type: Picklist
-Configuration: Single
+* Display Name: Event Location
+  Type: Picklist
+  Configuration: Single
+  Display Name: Long Description
+  Type: Text(Large)
 
-Display Name: Long Description
-Type: Text(Large)
+* Display Name: Short Description
+  Type: Text(Samll)
 
-Display Name: Short Description
-Type: Text(Samll)
+* Display Name: keywords
+  Type: Picklist
+  Configuration: Multiple
 
-Display Name: keywords
-Type: Picklist
-Configuration: Multiple
+* Display Name: Pre Validated
+  Type: Checkbox
 
-Display Name: Pre Validated
-Type: Checkbox
-
-Display Name: Proxy Triage
-Type: Checkbox
-
-IMPORTANT: Once you define a metadata field, it is not possible to modify the Id, name and type. So, at this point, be careful to assign the proper field name and type of data.
+* Display Name: Proxy Triage
+  Type: Checkbox
 
 3. Verify that all the necessary categories have been inputted, including the category "no department".
 
 4. Add the keywords to be entered in the keyword metadata field.
 
 5. Import the workflows in the following order:
-a. ingestAssetBase
-b. documentProxiesCreate
-c. imageProxiesCreate
-d. audioProxiesCreate
-e. videoProxiesCreate
-f. proxiesAssetCreate
-g. saveAssetMetadata
-h. ingestAssetBase
-i. notificationsCreate
-j. IngestAssetWithMetadata
-k. IngestDirectoryWithMetadata
+* a. ingestAssetBase
+* b. documentProxiesCreate
+* c. imageProxiesCreate
+* d. audioProxiesCreate
+* e. videoProxiesCreate
+* f. proxiesAssetCreate
+* g. saveAssetMetadata
+* h. ingestAssetBase
+* i. notificationsCreate
+* j. IngestAssetWithMetadata
+* k. IngestDirectoryWithMetadata
+
+IMPORTANT: Once you define a metadata field, it is not possible to modify the Id, name and type. So, at this point, be careful to assign the proper field name and type of data.
+
 
 ## Workflow description
 
@@ -113,10 +113,7 @@ All of these subflows are intended to create proxies and thumbnails of each file
 ## Workflows (subflows):  notificationsCreate
 This workflow is intended to create notification messages.
 
-##Notes For Go-Live
 
 ##Final note
 This is a fair use of original workflows, property of Levels Beyond Inc. or IMT inc. 
 
-Ingest files and catalogue them according to excel sheet 
-This workflow is intended to ingest all the contents of a directory and automatically catalogue the metadata contained in a sheet in CSV format.

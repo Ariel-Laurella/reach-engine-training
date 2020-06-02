@@ -5,35 +5,35 @@ It devives from _anyDirectoryIngest.xml workflow.
 -->
 
 <workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xmlns="http://levelsbeyond.com/schema/workflow"
-	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
-	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
-    id="IngestDirectoryWithMetadata"
-    name="Ingest Directory With Metadata"
-    executionLabelExpression="Ingest Directory With Metadata | Directory: ${directoryToIngest.absolutePath}"
-    deadlineExpression=""
-	subjectDOClassName=""
-    resultDataDef=""
-    showInUserInterface="true"
-    sdkVersion="5.21"
-	>
+		  xmlns="http://levelsbeyond.com/schema/workflow"
+		  xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+		  xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+		  id="IngestDirectoryWithMetadata"
+		  name="Ingest Directory With Metadata"
+		  executionLabelExpression="Ingest Directory With Metadata | Directory: ${directoryToIngest.absolutePath}"
+		  deadlineExpression=""
+		  subjectDOClassName=""
+		  resultDataDef=""
+		  showInUserInterface="true"
+		  sdkVersion="5.21"
+>
 
 	<initialStepName>check if directory is empty</initialStepName>
-	
-	
+
+
 	<!-- ................................................... Initial Checks .................................................... -->
 	<queryStep name="check if workflow is running"
-		targetDataObjectClass="WorkflowExecution"
-		resultDataDef="currentExecutions"
-		executionLabelExpression="Is a workflow running on this directory already? ${currentExecutions.size() != 0}"
-		>
+			   targetDataObjectClass="WorkflowExecution"
+			   resultDataDef="currentExecutions"
+			   executionLabelExpression="Is a workflow running on this directory already? ${currentExecutions.size() != 0}"
+	>
 		<transition condition="${currentExecutions.size() == 0}">
 			<targetStepName>check if directory is empty</targetStepName>
 		</transition>
 		<transition condition="true">
 			<targetStepName>workflow is running</targetStepName>
 		</transition>
-		
+
 		<criteria>
 			<![CDATA[
                 <criteria>
@@ -59,10 +59,10 @@ It devives from _anyDirectoryIngest.xml workflow.
             ]]>
 		</criteria>
 	</queryStep>
-	
+
 	<noopStep name="check if directory is empty"
-		executionLabelExpression="are there files in the directory? ${filesToIngest != null AND filesToIngest.size() &gt; 0}"
-		>
+			  executionLabelExpression="are there files in the directory? ${filesToIngest != null AND filesToIngest.size() &gt; 0}"
+	>
 		<transition condition="${filesToIngest != null AND filesToIngest.size() &gt; 0}">
 			<targetStepName>copy csv from S3 to Local</targetStepName>
 		</transition>
@@ -91,20 +91,15 @@ It devives from _anyDirectoryIngest.xml workflow.
 	<groovyStep	name="get metadata list from csv"
 				   resultDataDef="MetadataFull"
 				   executionLabelExpression="getting metadata from csv"
-				   continueOnException="true"
 				   nextStep="delete temp csv and json files"
 	>
 		<script>
 			<![CDATA[
-
 		// Convert csv to Json format
-
 			import groovy.json.JsonOutput
 			import groovy.json.JsonSlurper
-
 def jsonMappingPath = localDirectoryPath + "/"+ uuid + "/"+ uuid + ".json"
 def csvMetadataPath = localDirectoryPath +"/" + uuid + "/"+ uuid + ".csv"
-
 def jsonMappingSlurper = new JsonSlurper()
 def jsonRows = new ArrayList()
 def reachFieldNames = new ArrayList()
@@ -112,31 +107,24 @@ def csvColumnPosition = new ArrayList()
 def csvRows = new ArrayList()
 def jsonMappingelemnts = [:]
 def realRecordOIDname = ""
-
 File jsonFileToProcess = new File(jsonMappingPath)
 File csvFileToProcess = new File(csvMetadataPath)
-
 //Parse scv file
 csvFileToProcess.eachLine {
     csvRows.add(it)
 }
-
-
 //save reachFieldNames from the Json mapping
 def csvHeader = csvRows[0].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
 jsonMappingelemnts = jsonMappingSlurper.parse(jsonFileToProcess)
-
 for (int i = 0; i < jsonMappingelemnts.size(); i++) {
    if (jsonMappingelemnts.keySet()[i] == "uuid")
    {
        realRecordOIDname = jsonMappingelemnts.values()[i]
    }
-
     for (int j = 0; j < csvHeader.size(); j++)
     {
         if (jsonMappingelemnts.keySet()[i] == csvHeader[j])
         {
-
             reachFieldNames.add(jsonMappingelemnts.values()[i])
             csvColumnPosition.add(j)
         }
@@ -146,67 +134,49 @@ for (int i = 0; i < jsonMappingelemnts.size(); i++) {
             csvColumnPosition.add(j)
         }
     }
-
 }
 //remove HeaderRow from array csvRows
 csvRows.remove(0)
-
-
 // start looping over the lines in the CSV
 def rowCounter = 0
-
 for (def row in csvRows){
     rowCounter++
     Map mapSingleLine = [:]
-
     if (row == null || !row.contains(",") ){
         continue
     }
-
     //def splitRow = row.split(",")
     def splitRow = row.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*\$)")
-
-
     for (int j = 0; j < csvColumnPosition.size(); j++)
     {
         def rowValue
         try {
-
             rowValue = (j < splitRow.size()) ? splitRow[csvColumnPosition[j]]: ""
-
         }
         catch (Exception e)
         {
             rowValue = ""
         }
-
  		if (rowValue != "" &&  reachFieldNames[j] == "keywords")
         {
         	rowValue = rowValue.replace(",","|").replace("\"","")
         }
-
         mapSingleLine.put(reachFieldNames[j], rowValue)
     }
     mapSingleLine.put("proxyTriage","false")
     mapSingleLine.put("state","pending")
     mapSingleLine.put("message","")
-
-
     jsonRows.add(mapSingleLine)
-
 }
-
 //debug bad rows: those rows with same recordOID or empty recordOID
 // or same filename in the same sheet before processing.
 for(int i=0; i<jsonRows.size() ; i++)
 {
     Map mapSingleLine = jsonRows[i]
-
     if (mapSingleLine.get("state") == "failed")
     {
         continue
     }
-
     if (mapSingleLine.get(realRecordOIDname) == "")
     {
         mapSingleLine.replace("state","failed")
@@ -226,13 +196,9 @@ for(int i=0; i<jsonRows.size() ; i++)
             }
         }
     }
-
 }
-
 //return JsonOutput.toJson(jsonRows)
 return jsonRows
-
-
        ]]>
 		</script>
 	</groovyStep>
@@ -284,9 +250,7 @@ return jsonRows
 	  "fileIndex" 				(I) : current index position to ingest according to list "filesToIngest".
       "initialFileIndex			(Ii): initial index position from each new calculous of (F).
 	  "executingSubflows.size()"(P) : current instances of ingest running.
-
 	  the following logic try to not overwhelm system with more than 11 files simultaneously processing:
-
 	  If P>10 then wait 10 seconds and ask again
 	  elseif (T-I>11 or 11-P<T-I)  then F = 11 - P
 	  else F = T - I
@@ -322,8 +286,8 @@ return jsonRows
 	</setContextData>
 
 
-<!-- ................................................... Queue Loop 2:  ............................................ -->
-<!-- second loop from here to send "filesToIngestNow" in parallel ...........-->
+	<!-- ................................................... Queue Loop 2:  ............................................ -->
+	<!-- second loop from here to send "filesToIngestNow" in parallel ...........-->
 
 
 	<!-- Search file in the sheet and return metadata that match -->
@@ -345,16 +309,12 @@ return jsonRows
 		</transition>
 		<script>
 			<![CDATA[
-
 		// get metadata related to the file to ingest
-
 		import groovy.json.JsonOutput
 		import groovy.json.JsonSlurper
-
 		mapMetadata = [:]
 		def slurper = new JsonSlurper()
 		Map[] jsonList = slurper.parseText(MetadataFull.toString())
-
 		for (def jsonRow in jsonList)
 		{
 			if(jsonRow.get("fileName") == baseFilename && jsonRow.get("state") == "pending" )
@@ -363,7 +323,6 @@ return jsonRows
 				break
 			}
 		}
-
 		return mapMetadata
        ]]>
 		</script>
@@ -407,14 +366,11 @@ return jsonRows
 		<script>
 			<![CDATA[
 		// update metadata list: fail ingest because another content has the same recordOID
-
 		import groovy.json.JsonOutput
 		import groovy.json.JsonSlurper
-
 		def slurper = new JsonSlurper()
 		Map[] jsonList = slurper.parseText(MetadataFull.toString())
 		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
-
 		for (int i = 0;i < jsonList.size(); i++)
 		{
 			if(jsonList[i].get("fileName") == mapMetadata.get("fileName") && jsonList[i].get("state") == "pending" )
@@ -424,9 +380,7 @@ return jsonRows
 				break
 			}
 		}
-
 		return jsonList
-
        ]]>
 		</script>
 	</groovyStep>
@@ -441,14 +395,11 @@ return jsonRows
 		<script>
 			<![CDATA[
 		// update metadata list: fail ingest because another content has the same recordOID
-
 		import groovy.json.JsonOutput
 		import groovy.json.JsonSlurper
-
 		def slurper = new JsonSlurper()
 		Map[] jsonList = slurper.parseText(MetadataFull.toString())
 		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
-
 		for (int i = 0;i < jsonList.size(); i++)
 		{
 			if(jsonList[i].get("fileName") == mapMetadata.get("fileName") && jsonList[i].get("state") == "pending" )
@@ -457,9 +408,7 @@ return jsonRows
 				break
 			}
 		}
-
 		return jsonList
-
        ]]>
 		</script>
 	</groovyStep>
@@ -473,21 +422,15 @@ return jsonRows
 		<script>
 			<![CDATA[
 		// update categories metadata to ingest
-
 		import groovy.json.JsonOutput
 		import groovy.json.JsonSlurper
-
 		def categories = new ArrayList()
 		def slurper = new JsonSlurper()
 		Map mapMetadata = slurper.parseText(jsonMetadata.toString())
-
 		def catElements =  mapMetadata.get("category").replace("\"","").split(",")
-
 		for (def catElement in catElements){
 			categories.add(catElement)
 		}
-
-
 		return categories
        ]]>
 		</script>
@@ -522,6 +465,8 @@ return jsonRows
 		<subflowContextDataMapping parentDataDef="categoryNoDepartment"     subflowDataDef="categoryNoDepartment"/>
 		<subflowContextDataMapping parentDataDef="collectionDefault"     	subflowDataDef="collectionDefault"/>
 
+
+
 		<!-- proxies -->
 		<subflowContextDataMapping parentDataDef="failOnProxiesError"       subflowDataDef="failOnProxiesError"/>
 		<subflowContextDataMapping parentDataDef="prioritiesJson"           subflowDataDef="prioritiesJson"/>
@@ -554,30 +499,26 @@ return jsonRows
 
 
 	<delayStep 	name="wait some time"
-			   	delaySecondsExpression="10"
-				nextStep="query for running subflows"
+				  delaySecondsExpression="10"
+				  nextStep="query for running subflows"
 	/>
-<!-- ................................................... Finish Loop ............................................... -->
+	<!-- ................................................... Finish Loop ............................................... -->
 
-	<noopStep name="make final message"
-			  nextStep="sendEmail"
-			  />
 
-<!--
 	<executeSubflowStep name="make final message"
 						executionLabelExpression="ingesting file (${fileToIngest.name})"
+						targetWorkflowId="notificationsCreate"
 						subjectChangePath="${MetadataFull[0]}"
 						subflowTargetDataDef="MetadataFull"
-						targetWorkflowId="notificationsCreate"
 						resultDataDef="notificationResult"
-						waitForCompletionExpression="true"
-						continueOnException="true"
 						pctComplete="99"
 						nextStep="sendEmail"
 	>
 		<subflowContextDataMapping parentDataDef="MetadataFull"             subflowDataDef="MetadataFull"/>
 	</executeSubflowStep>
--->
+
+
+
 
 
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
@@ -596,22 +537,22 @@ return jsonRows
 
 
 	<noopStep name="no files to process"
-		executionLabelExpression="No files in ${directoryToIngest.absolutePath}."
-		pctComplete="99"
-		nextStep="end"
-		/>
-	
-	
+			  executionLabelExpression="No files in ${directoryToIngest.absolutePath}."
+			  pctComplete="99"
+			  nextStep="end"
+	/>
+
+
 	<noopStep name="end"    pctComplete="100"/>
 
 
 	<!-- fail -->
 	<failWorkflowStep name="workflow is running"
-		executionLabelExpression="Workflow already executing on the directory"
-		reasonExpression="Workflow already executing on the directory"
-		/>
-	
-	
+					  executionLabelExpression="Workflow already executing on the directory"
+					  reasonExpression="Workflow already executing on the directory"
+	/>
+
+
 	<!-- ............................................... Context Data Defs ................................................ -->
 
 	<!-- ....... User Input Variables ........ -->
@@ -621,7 +562,6 @@ return jsonRows
 
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
-	<contextDataDef name="MetadataFull2" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="jsonResultList" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="notificationResult" 		dataType="String" />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
@@ -649,7 +589,7 @@ return jsonRows
 	<contextDataDef name="prioritiesJson"           dataType="JSON">
 		<description>
 			A JSON with the structure:
-				{"mezzanine":w, "proxy":x, "thumbnailVideo":y, "thumbnail":z}
+			{"mezzanine":w, "proxy":x, "thumbnailVideo":y, "thumbnail":z}
 		</description>
 	</contextDataDef>
 	<contextDataDef name="createMezz"               dataType="Boolean"/>
@@ -671,7 +611,7 @@ return jsonRows
 	<contextDataDef name="imageThumbArguments"      dataType="String"/>
 	<contextDataDef name="documentProxyArguments"   dataType="String"/>
 	<contextDataDef name="documentThumbArguments"   dataType="String"/>
-	
+
 	<!-- ....... Processing Variables ........ -->
 	<contextDataDef name="currentExecutions" 	    dataType="Data Object" 	multiple="true"/>
 	<contextDataDef name="filesToIngest" 		    dataType="File"		    multiple="true"     defaultDataExpression="${#walkDir(directoryToIngest, null)}"/>

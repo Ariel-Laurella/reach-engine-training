@@ -19,13 +19,13 @@ to parent, which will email the user.
 	sdkVersion="5.21"
 	>
 	
-	<initialStepName>set json element to process</initialStepName>
+	<initialStepName>set notification with failed items</initialStepName>
 
 	<!--make notificationResult with failed rows in the sheet -->
 	<groovyStep	name="set notification with failed items"
 				   resultDataDef="notificationResult"
 				   executionLabelExpression="setting notification with failed items"
-				   nextStep="set json element to process"
+				   nextStep="set json element to process pending records"
 	>
 		<script>
 			<![CDATA[
@@ -52,13 +52,13 @@ to parent, which will email the user.
 
 
 
-	<!--get json element for pending elemnts of the sheet -->
-	<groovyStep	name="set json element to process"
+	<!--get json element for pending elemnts of the sheet that need to be verified-->
+	<groovyStep	name="set json element to process pending records"
 				   resultDataDef="jsonMetadata"
 				   executionLabelExpression="setting json element ${jsonIndex} to process"
 	>
 		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
-			<targetStepName>query for recordOID</targetStepName>
+			<targetStepName>ask for null jsonMetadata</targetStepName>
 		</transition>
 		<transition condition="${true}">
 			<targetStepName>increment index</targetStepName>
@@ -93,7 +93,7 @@ to parent, which will email the user.
 			<targetStepName>set new JsonIndex</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName>end</targetStepName>
+			<targetStepName>verify if fail or success message</targetStepName>
 		</transition>
 	</noopStep>
 
@@ -102,6 +102,7 @@ to parent, which will email the user.
 	<setContextData name="set new JsonIndex"
 					targetDataDef="jsonIndex"
 					valueExpression="${jsonMetadata.get('index').asInt()}"
+					nextStep="query for recordOID"
 	/>
 
 
@@ -113,10 +114,10 @@ to parent, which will email the user.
 
 	>
 		<transition condition="${resultObject != null}">
-			<targetStepName></targetStepName>
+			<targetStepName>query for collection</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName>record not found</targetStepName>
+			<targetStepName>fail for recordOID not found</targetStepName>
 		</transition>
 
 		<criteria>
@@ -132,8 +133,19 @@ to parent, which will email the user.
 		</criteria>
 	</queryStep>
 
-
-	<!--if category is -no department- then fill notification variable to inform the user
+	<!-- fail for recordOID not found -->
+	<groovyStep	name="fail for recordOID not found"
+				   resultDataDef="notificationResult"
+				   executionLabelExpression="setting recordOID not found"
+				   nextStep="increment index"
+	>
+		<script>
+			<![CDATA[
+			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " not ingested or recordIOD not found."
+			return resultString
+       ]]>
+		</script>
+	</groovyStep>
 
 	<!--check if asset is in collection orphaned -->
  	<queryStep name="query for collection"
@@ -142,7 +154,7 @@ to parent, which will email the user.
         resultDataDef="collection"
         >
         <transition condition="${collection == null}">
-            <targetStepName>increment index</targetStepName>
+            <targetStepName>query for category</targetStepName>
         </transition>
         <transition condition="${true}">
             <targetStepName>fail for collection orphaned</targetStepName>
@@ -161,34 +173,59 @@ to parent, which will email the user.
         </criteria>
     </queryStep>
 
-
-
-	<!--if collection is -orphaned- then fill notification variable to inform the user -->
-
-	<!-- fail for recordOID not found -->
+	<!-- fail for collection orphaned -->
 	<groovyStep	name="fail for collection orphaned"
 				   resultDataDef="notificationResult"
 				   executionLabelExpression="setting recordOID not found"
-				   nextStep="increment index"
+				   nextStep="query for category"
 	>
 		<script>
 			<![CDATA[
-			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has failed to add in collection jsonMetadata.get("collection"). It is in orphaned collection."
+			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has failed to add in collection " + jsonMetadata.get("collection") + ". It is in orphaned collection."
 			return resultString
        ]]>
 		</script>
 	</groovyStep>
 
 
-	<!-- fail for recordOID not found -->
-	<groovyStep	name="fail for recordOID not found"
+
+	<!--check if category asigned to asset in the sheet exist.
+	    If no, then the asset would be added to -no department -->
+	<queryStep name="query for category"
+			   executionLabelExpression="Querying for the category Found"
+			   targetDataObjectClass="AssetCategory"
+			   resultDataDef="combinedCategories"
+	>
+		<transition condition="${(jsonMetadata.get('category').asText() != '' AND combinedCategories.size() == 0)}">
+			<targetStepName>fail for category not found</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>increment index</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+				<criteria>
+					<and>
+						<condition property="name" op="eq">
+							<test value="${jsonMetadata.get('category').asText()}" />
+						</condition>
+					</and>
+				</criteria>
+			]]>
+		</criteria>
+	</queryStep>
+
+
+	<!-- fail for category not foud -->
+	<groovyStep	name="fail for category not found"
 				   resultDataDef="notificationResult"
-				   executionLabelExpression="setting recordOID not found"
+				   executionLabelExpression="setting category not found"
 				   nextStep="increment index"
 	>
 		<script>
 			<![CDATA[
-			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " not ingested or recordIOD not found."
+			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has assigned the category " + jsonMetadata.get("category") + ", but it does not exist on Reachengine. Verify if the asset was added to the no department category."
 			return resultString
        ]]>
 		</script>
@@ -201,13 +238,37 @@ to parent, which will email the user.
 					valueExpression="${jsonIndex + 1}"
 	>
 		<transition condition="${jsonIndex == MetadataFull.size()}">
-			<targetStepName>end</targetStepName>
+			<targetStepName>verify if fail or success message</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName></targetStepName>
+			<targetStepName>set json element to process pending records</targetStepName>
 		</transition>
 	</setContextData>
 
+
+	<!-- verify if there are no errors, then make a success message -->
+
+	<groovyStep	name="verify if fail or success message"
+				   resultDataDef="notificationResult"
+				   executionLabelExpression="verifying if fail or success message"
+				   nextStep="end"
+	>
+		<script>
+			<![CDATA[
+			def resultString = notificationResult
+
+			if (resultString == "")
+			{
+				resultString = "Dear user, no error has been found during the ingest process."
+			}
+			else
+			{
+				resultString =  "Dear user, find below the erros during the ingest process. " + "\r\n" + notificationResult
+			}
+			return resultString
+       ]]>
+		</script>
+	</groovyStep>
 
 	<!-- ................................................... End Steps .................................................... -->
 	<!-- success -->
@@ -229,8 +290,8 @@ to parent, which will email the user.
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="jsonIndex" 				dataType="Integer" defaultDataExpression="0" />
 	<contextDataDef name="notificationResult" 		dataType="String" />
-	<contextDataDef name="resultObject" dataType="Data Object" />
-	<contextDataDef name="collection"            dataType="Data Object"         />
-
+	<contextDataDef name="resultObject" 			dataType="Data Object" />
+	<contextDataDef name="collection"            	dataType="Data Object"         />
+	<contextDataDef name="combinedCategories"   	dataType="Data Object"      multiple="true"/>
 
 </workflow>
