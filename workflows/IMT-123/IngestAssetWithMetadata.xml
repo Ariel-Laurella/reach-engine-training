@@ -13,7 +13,7 @@ It devives from _anyAssetIngest.xml workflow.
 	executionLabelExpression="Ingest Asset With Metadata | File: ${fileToIngest.absolutePath}"
 	description=""
 	subjectDOClassName=""
-	resultDataDef="jsonMetadata"
+	resultDataDef="jsonResultList"
 	deadlineExpression=""
 	showInUserInterface="false"
 	sdkVersion="5.21"
@@ -85,7 +85,7 @@ It devives from _anyAssetIngest.xml workflow.
 		targetWorkflowId="${metadataSubflow}"
 		subjectChangePath="${assetMaster}"
 		subflowTargetDataDef="asset"
-
+		resultDataDef="jsonResultList"
 		executionLabelExpression="Add any collections, categories, and metadata"
 		pctComplete="50"
 		nextStep="create proxies"
@@ -100,6 +100,8 @@ It devives from _anyAssetIngest.xml workflow.
 		<subflowContextDataMapping parentDataDef="linkMetadata"             subflowDataDef="linkMetadata"/>
 		<subflowContextDataMapping parentDataDef="categoryNoDepartment"     subflowDataDef="categoryNoDepartment"/>
 		<subflowContextDataMapping parentDataDef="collectionDefault"     	subflowDataDef="collectionDefault"/>
+		<subflowContextDataMapping parentDataDef="jsonResultList"     		subflowDataDef="jsonResultList"/>
+
 
 	</executeSubflowStep>
 
@@ -190,6 +192,7 @@ It devives from _anyAssetIngest.xml workflow.
 	<contextDataDef name="categoryNames"            dataType="String"           multiple="true"/>
 	<contextDataDef name="categoryNoDepartment" 	dataType="String"			multiple="true"/>
 	<contextDataDef name="collectionDefault" 		dataType="String"/>
+	<contextDataDef name="jsonResultList" 			dataType="JSON" multiple="true"   />
 
 	<contextDataDef name="linkMetadata"             dataType="JSON"             multiple="true">
 		<description>

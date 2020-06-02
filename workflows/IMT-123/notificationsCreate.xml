@@ -1,0 +1,236 @@
+<!--
+This workflow is inteded to make a string variable with all information needed to notify the user. This variables is returned
+to parent, which will email the user.
+
+-->
+
+<workflow xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://levelsbeyond.com/schema/workflow"
+	xmlns:nimbus="http://levelsbeyond.com/schema/workflow/nimbus"
+	xsi:schemaLocation="http://levelsbeyond.com/schema/latest http://levelsbeyond.com/schema/latest/studio.xsd"
+	id="notificationsCreate"
+	name="Create a string to notification by mail"
+	executionLabelExpression="Create notification from metadata"
+	description=""
+	subjectDOClassName=""
+	resultDataDef="notificationResult"
+	deadlineExpression=""
+	showInUserInterface="false"
+	sdkVersion="5.21"
+	>
+	
+	<initialStepName>set json element to process</initialStepName>
+
+	<!--make notificationResult with failed rows in the sheet -->
+	<groovyStep	name="set notification with failed items"
+				   resultDataDef="notificationResult"
+				   executionLabelExpression="setting notification with failed items"
+				   nextStep="set json element to process"
+	>
+		<script>
+			<![CDATA[
+
+		import groovy.json.JsonOutput
+		import groovy.json.JsonSlurper
+
+		def slurper = new JsonSlurper()
+		Map[] jsonList = slurper.parseText(MetadataFull.toString())
+		def resultString = ""
+
+		for (def jsonRow in jsonList)
+		{
+			if(jsonRow.get("state") == "failed" )
+			{
+				resultString = resultString + "\r\n" + jsonRow.get("message")
+			}
+		}
+
+		return resultString
+       ]]>
+		</script>
+	</groovyStep>
+
+
+
+	<!--get json element for pending elemnts of the sheet -->
+	<groovyStep	name="set json element to process"
+				   resultDataDef="jsonMetadata"
+				   executionLabelExpression="setting json element ${jsonIndex} to process"
+	>
+		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
+			<targetStepName>query for recordOID</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>increment index</targetStepName>
+		</transition>
+		<script>
+			<![CDATA[
+
+			mapMetadata = [:]
+			def slurper = new JsonSlurper()
+			Map[] jsonList = slurper.parseText(MetadataFull.toString())
+			
+			for (int i = jsonIndex; i<jsonList.size(); i++)
+			{
+				if(jsonList[i].get("state") == "pending" )
+				{
+					mapMetadata.put("recordOID",jsonList[i].get("recordOID"))
+					mapMetadata.put("fileName",jsonList[i].get("fileName"))
+					mapMetadata.put("collection",jsonList[i].get("collection"))
+					mapMetadata.put("category",jsonList[i].get("category"))
+					mapMetadata.put("index",i)
+					break
+				}
+			}
+			
+			return mapMetadata
+       ]]>
+		</script>
+	</groovyStep>
+
+	<noopStep name="ask for null jsonMetadata">
+		<transition condition="${jsonMetadata != null AND jsonMetadata.size() &gt; 0}">
+			<targetStepName>set new JsonIndex</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>end</targetStepName>
+		</transition>
+	</noopStep>
+
+
+	<!--set new JsonIndex -->
+	<setContextData name="set new JsonIndex"
+					targetDataDef="jsonIndex"
+					valueExpression="${jsonMetadata.get('index').asInt()}"
+	/>
+
+
+	<!--Get category value from recordOID-->
+	<queryStep name="query for recordOID"
+			   executionLabelExpression="Verifying if recordOID already exist"
+			   targetDataObjectClass="AssetMaster"
+			   resultDataDef="resultObject"
+
+	>
+		<transition condition="${resultObject != null}">
+			<targetStepName></targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName>record not found</targetStepName>
+		</transition>
+
+		<criteria>
+			<![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="metadata.recordOID" op="eq">
+                            <test value="${ jsonMetadata.get('recordOID').asText()}"/>
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+		</criteria>
+	</queryStep>
+
+
+	<!--if category is -no department- then fill notification variable to inform the user
+
+	<!--check if asset is in collection orphaned -->
+ 	<queryStep name="query for collection"
+        targetDataObjectClass="AssetCollection"
+        executionLabelExpression="check if asset is in collection orphaned"
+        resultDataDef="collection"
+        >
+        <transition condition="${collection == null}">
+            <targetStepName>increment index</targetStepName>
+        </transition>
+        <transition condition="${true}">
+            <targetStepName>fail for collection orphaned</targetStepName>
+        </transition>
+
+        <criteria>
+            <![CDATA[
+                <criteria>
+                    <and>
+                        <condition property="name" op="eq">
+                            <test value="orphaned" />
+                        </condition>
+                    </and>
+                </criteria>
+            ]]>
+        </criteria>
+    </queryStep>
+
+
+
+	<!--if collection is -orphaned- then fill notification variable to inform the user -->
+
+	<!-- fail for recordOID not found -->
+	<groovyStep	name="fail for collection orphaned"
+				   resultDataDef="notificationResult"
+				   executionLabelExpression="setting recordOID not found"
+				   nextStep="increment index"
+	>
+		<script>
+			<![CDATA[
+			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " has failed to add in collection jsonMetadata.get("collection"). It is in orphaned collection."
+			return resultString
+       ]]>
+		</script>
+	</groovyStep>
+
+
+	<!-- fail for recordOID not found -->
+	<groovyStep	name="fail for recordOID not found"
+				   resultDataDef="notificationResult"
+				   executionLabelExpression="setting recordOID not found"
+				   nextStep="increment index"
+	>
+		<script>
+			<![CDATA[
+			def resultString = notificationResult + "\r\n" + jsonMetadata.get("fileName") + " not ingested or recordIOD not found."
+			return resultString
+       ]]>
+		</script>
+	</groovyStep>
+
+
+	<!-- set to next element -->
+	<setContextData name="increment index"
+					targetDataDef="jsonIndex"
+					valueExpression="${jsonIndex + 1}"
+	>
+		<transition condition="${jsonIndex == MetadataFull.size()}">
+			<targetStepName>end</targetStepName>
+		</transition>
+		<transition condition="${true}">
+			<targetStepName></targetStepName>
+		</transition>
+	</setContextData>
+
+
+	<!-- ................................................... End Steps .................................................... -->
+	<!-- success -->
+
+
+	<noopStep name="end"	pctComplete="100"/>
+	
+	
+	<!-- fail -->
+	<failWorkflowStep name="workflow failed"
+		executionLabelExpression="Worflow failed"
+		reasonExpression="Workflow failed"
+		/>
+	
+	
+	<!-- ............................................... Context Data Defs ................................................ -->
+
+	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
+	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
+	<contextDataDef name="jsonIndex" 				dataType="Integer" defaultDataExpression="0" />
+	<contextDataDef name="notificationResult" 		dataType="String" />
+	<contextDataDef name="resultObject" dataType="Data Object" />
+	<contextDataDef name="collection"            dataType="Data Object"         />
+
+
+</workflow>

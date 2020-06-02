@@ -294,7 +294,7 @@ return jsonRows
 
 	<noopStep name="get number of files to ingest">
 		<transition condition="${executingSubflows.size() == 0 AND fileIndex == totalFiles }">
-			<targetStepName>sendEmail</targetStepName>
+			<targetStepName>make final message</targetStepName>
 		</transition>
 		<transition condition="${executingSubflows.size() &gt; 10  OR (executingSubflows.size() != 0 AND fileIndex == totalFiles)}">
 			<targetStepName>wait some time</targetStepName>
@@ -493,44 +493,7 @@ return jsonRows
 		</script>
 	</groovyStep>
 
-<!-- TODO: "update collection to allocate asset" can be removed -->
-	<!-- update collection to allocate asset-->
-	<groovyStep	name="update collection to allocate asset"
-				   resultDataDef="collections"
-				   executionLabelExpression="updating metadata about collection"
-				   continueOnException="true"
-				   nextStep="process file"
 
-	>
-		<script>
-			<![CDATA[
-
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurper
-
-def ArrayCollections = new ArrayList()
-def slurper = new JsonSlurper()
-
-Map mapMetadata = slurper.parseText(jsonMetadata.toString())
-
-def collElements =  mapMetadata.get("collection").split(",")
-for (def collElement in collElements)
-{
-    ArrayCollections.add("[AssetCollection." + collElement + "]")
-}
-if (ArrayCollections.size() == 0)
-{
-    ArrayCollections.add("[AssetCollection.orphaned]")
-}
-
-return ArrayCollections
-
-       ]]>
-		</script>
-	</groovyStep>
-
-
-	<!-- process file in parallel -->
 	<executeSubflowStep name="process file"
 						executionLabelExpression="Ingesting file ${filesToIngest[fileIndex]}"
 						targetWorkflowId="${ingestSubflow}"
@@ -540,6 +503,7 @@ return ArrayCollections
 						waitForCompletionExpression="false"
 						continueOnException="true"
 						nextStep="increment file index"
+
 	>
 		<!-- ingest -->
 		<subflowContextDataMapping parentDataDef="sourceAsMezz"             subflowDataDef="sourceAsMezz"/>
@@ -598,24 +562,26 @@ return ArrayCollections
 <!-- ................................................... Finish Loop ............................................... -->
 
 
+	<executeSubflowStep name="make final message"
+						executionLabelExpression="ingesting file (${fileToIngest.name})"
+						targetWorkflowId="notificationsCreate"
+						subjectChangePath="${MetadataFull}"
+						subflowTargetDataDef="MetadataFull"
+						resultDataDef="notificationResult"
+						pctComplete="99"
+						nextStep="sendEmail"
+	>
+		<subflowContextDataMapping parentDataDef="MetadataFull"             subflowDataDef="MetadataFull"/>
+	</executeSubflowStep>
+
+
+
 	<emailStep 	name="sendEmail"  emailAddressesExpression="${userEmailAddress}"
-				  subjectExpression="I'm just writing to say.."
+				  subjectExpression="Ingest of Directory Completed: ${directoryToIngest.absolutePath}"
 				  nextStep="end"
 	>
 		<body>
-			<![CDATA[    ${jsonMetadata.toString()}  ]]>
-			<!-- <![CDATA[    ${resultObject.metadata.longDescription}  ]]> -->
-		</body>
-	</emailStep>
-
-	<emailStep 	name="sendEmail2"  emailAddressesExpression="${userEmailAddress}"
-				  subjectExpression="Existe el recordOID"
-				  nextStep="end"
-	>
-		<body>
-			<![CDATA[    ${jsonMetadata.get('longDescription').asText()}  ]]>
-
-
+			<![CDATA[    ${notificationResult}  ]]>
 		</body>
 	</emailStep>
 
@@ -652,19 +618,17 @@ return ArrayCollections
 	<contextDataDef name="jsonMetadata" 			dataType="JSON" />
 	<contextDataDef name="MetadataFull" 			dataType="JSON" multiple="true"   />
 	<contextDataDef name="jsonResultList" 			dataType="JSON" multiple="true"   />
+	<contextDataDef name="notificationResult" 		dataType="String" />
 	<contextDataDef name="userEmailAddress" 		dataType="String" 		defaultDataExpression="${#this.startedBy.emailAddress}"/>
 
 	<contextDataDef name="uuid"  		 			dataType="String"  defaultDataExpression="${#uuid().toString()}" />
 	<contextDataDef name="localDirectoryPath"   	dataType="String"  defaultDataExpression="/reachengine/media/temp" />
 	<contextDataDef name="categoryNoDepartment" 	dataType="String"	multiple="true" defaultDataExpression="no department" />
 	<contextDataDef name="collectionDefault" 		dataType="String"	defaultDataExpression="orphaned" />
-
-
 	<contextDataDef name="baseFilename" 			dataType="String" />
 
 
 	<contextDataDef name="resultObject" dataType="Data Object" />
-
 
 
 	<!-- .......... Input Variables .......... -->
@@ -723,9 +687,7 @@ return ArrayCollections
 	<contextDataDef name="ingestSubflow"      	    dataType="String" 		defaultDataExpression="IngestAssetWithMetadata"/>
 
 
-<!-- TODO: These variables must be removed -->
-
-	<contextDataDef name="recordNumber" dataType="String" defaultDataExpression="100201"  />
+	<contextDataDef name="recordNumber" 			dataType="String" defaultDataExpression="100201"  />
 
 
 	<contextDataDef name="collections"              dataType="Data Object"  multiple="true" defaultDataExpression="${subject}" />

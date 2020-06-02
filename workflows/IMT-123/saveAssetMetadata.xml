@@ -14,6 +14,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 	subjectDOClassName=""
 	showInUserInterface="false"
 	sdkVersion="5.21"
+	resultDataDef="jsonResultList"
 
 	>
 	
@@ -133,7 +134,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</noopStep>
 	
@@ -171,7 +172,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</noopStep>
 	
@@ -195,7 +196,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</saveDataObjectStep>
 	
@@ -217,7 +218,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 		
 		<subflowContextDataMapping parentDataDef="asset"  subflowDataDef="asset"/>
@@ -241,7 +242,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 		
 		<nimbus:addCategory>${combinedCategories}</nimbus:addCategory>
@@ -252,7 +253,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 		executionLabelExpression="could not save categories. | fail? ${failOnError}"
 		>
 		<transition condition="${failOnError}">
-			<targetStepName>save in default category</targetStepName>
+			<targetStepName>set error in category message</targetStepName>
 		</transition>
 		<transition condition="${categoryNames != null AND categoryNames.size() &gt; 0}">
 			<targetStepName>save categories by name</targetStepName>
@@ -261,7 +262,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</noopStep>
 	
@@ -296,7 +297,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 
 		<criteria>
@@ -317,29 +318,32 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 		executionLabelExpression="could not save categories. | fail? ${failOnError}"
 		>
 		<transition condition="${failOnError}">
-			<targetStepName>save in default category</targetStepName>
+			<targetStepName>set error in category message</targetStepName>
 		</transition>
 		<transition condition="${collectionName != ''}">
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</noopStep>
+
+	<setContextData name="set error in category message"
+					targetDataDef="errorJsonCategory"
+					valueExpression="{'fileName': '${jsonMetadata.get('fileName').asText()}','state': 'failed','message': 'failed while adding to category ${jsonMetadata.get('category').asText()}. It was added to -no department-.'}"
+					nextStep="save in default category"
+	/>
 
 	<nimbus:changeMetaCategoryStep name="save in default category"
 								   targetObjectExpression="${asset}"
 								   executionLabelExpression="saving in category -${categoryNoDepartment[0]}-"
 								   pctComplete="80"
 	>
-		<exception-transition type="WorkflowException">
-			<targetStepName>category name error</targetStepName>
-		</exception-transition>
 		<transition condition="${collectionName != ''}">
 			<targetStepName>search for collection</targetStepName>
 		</transition>
 		<transition condition="true">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 
 		<nimbus:addCategory>${categoryNoDepartment}</nimbus:addCategory>
@@ -390,7 +394,7 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>verify to add default collection</targetStepName>
 		</exception-transition>
 		<transition condition="${true}">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 		<property name="collection">${collection}</property>
 		<property name="asset">${asset}</property>
@@ -401,14 +405,58 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 			<targetStepName>set collectionName to default</targetStepName>
 		</transition>
 		<transition condition="${true}">
-			<targetStepName>end</targetStepName>
+			<targetStepName>fill error list to notifications</targetStepName>
 		</transition>
 	</noopStep>
+
 
 	<setContextData name="set collectionName to default"
 					targetDataDef="collectionName"
 					valueExpression="${collectionDefault}"
-					nextStep="search for collection"/>
+					nextStep="set error in collection message"/>
+
+
+	<setContextData name="set error in collection message"
+					targetDataDef="errorJsonCollection"
+					valueExpression="{'fileName': '${jsonMetadata.get('fileName').asText()}','state': 'failed','message': 'failed while adding to category ${jsonMetadata.get('collection').asText()}. It was added to -orphaned-.'}"
+					nextStep="search for collection"
+	/>
+
+
+	<groovyStep	name="fill error list to notifications"
+				   resultDataDef="jsonResultList"
+				   executionLabelExpression="setting error in category"
+				   nextStep="end"
+	>
+		<script>
+			<![CDATA[
+
+			// set error list
+
+			import groovy.json.JsonOutput
+			import groovy.json.JsonSlurper
+
+			def jsonErrors = new ArrayList()
+			def slurper = new JsonSlurper()
+
+			if (errorJsonCategory != null)
+			{
+				Map jsonErrorCategory = slurper.parseText(errorJsonCategory.toString())
+				jsonErrors.add(jsonErrorCategory)
+
+			}
+			if (errorJsonCollection != null)
+			{
+				Map jsonErrorcollection = slurper.parseText(errorJsonCollection.toString())
+				jsonErrors.add(jsonErrorcollection)
+
+			}
+
+			return jsonErrors
+
+       ]]>
+		</script>
+	</groovyStep>
 
 
 	<!-- ................................................... End Steps .................................................... -->
@@ -445,7 +493,9 @@ It devives from _saveAnyAssetMetadata.xml workflow.
 	<contextDataDef name="metadataForm"         dataType="MetadataForm"/>
 	<contextDataDef name="jsonMetadata"         dataType="JSON"/>
 	<contextDataDef name="collectionName"       dataType="String"           defaultDataExpression="${jsonMetadata.get('collection').asText()}"/>
-
+	<contextDataDef name="jsonResultList" 		dataType="JSON" multiple="true"   />
+	<contextDataDef name="errorJsonCategory"	dataType="JSON" />
+	<contextDataDef name="errorJsonCollection" 	dataType="JSON" />
 	<contextDataDef name="linkMetadata"         dataType="JSON"             multiple="true"/>
 	<contextDataDef name="metadataFormType"     dataType="String"           defaultDataExpression="access"/>
 
